@@ -1,0 +1,2775 @@
+-- Blox Fruits Script with OnyxHub GUI
+
+-- Basic OnyxHub setup (adapted from MM2 script)
+local Players = game:GetService("Players")
+local RunService_OH = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Debris = game:GetService("Debris")
+local SoundService = game:GetService("SoundService")
+
+local LP = Players.LocalPlayer
+
+local CONFIG = {
+    MAIN_COLOR = Color3.fromRGB(150, 100, 255),
+    TOGGLE_SPACING = 52,
+    BUTTON_HEIGHT = 48,
+    SPACING = 8
+}
+
+local STATES = {
+    GUIVisible = true,
+    -- Add Blox Fruits specific states here
+}
+
+local UI_ELEMENTS = {
+    ScreenGui = nil,
+    OpenCloseGui = nil,
+    MainFrame = nil,
+    TabButtonsContainer = nil,
+    ContentFrame = nil,
+    Tabs = {},
+    ToggleCallbacks = {},
+    ToggleStates = {},
+}
+
+local ActiveNotifications = {}
+local NOTIFICATION_HEIGHT = 85
+
+local UTILS = {}
+
+function UTILS.playClickSound()
+    local s = Instance.new("Sound"); s.SoundId = "rbxassetid://138656262630730"
+    s.Volume = 0.7; s.Parent = SoundService; s:Play(); Debris:AddItem(s, 2)
+end
+
+function UTILS.showNotification(title, message, duration)
+    duration = duration or 5
+    local s = Instance.new("Sound"); s.SoundId = "rbxassetid://106553517979212"
+    s.Volume = 0.5; s.Parent = SoundService; s:Play(); Debris:AddItem(s, 3)
+    if not UI_ELEMENTS.ScreenGui then
+        UI_ELEMENTS.ScreenGui = UTILS.createInstance("ScreenGui", CoreGui, {
+            Name = "BloxFruitsGUI", ZIndexBehavior = Enum.ZIndexBehavior.Global,
+            ResetOnSpawn = false, DisplayOrder = 100
+        })
+    end
+    local function updateStack()
+        for i, f in ipairs(ActiveNotifications) do
+            if f and f.Parent then
+                local targetY = -105 - ((#ActiveNotifications - i) * NOTIFICATION_HEIGHT)
+                TweenService:Create(f, TweenInfo.new(0.4, Enum.EasingStyle.Quart, Enum.EasingDirection.Out),
+                    {Position = UDim2.new(1, -300, 1, targetY)}):Play()
+            end
+        end
+    end
+    local function removeNotif(nf)
+        local idx = table.find(ActiveNotifications, nf)
+        if idx then
+            table.remove(ActiveNotifications, idx)
+            nf:TweenPosition(UDim2.new(1, 300, nf.Position.Y.Scale, nf.Position.Y.Offset),
+                "In", "Quad", 0.4, true, function() nf:Destroy(); updateStack() end)
+        end
+    end
+    if #ActiveNotifications >= 5 then
+        local old = ActiveNotifications[1]
+        if old then removeNotif(old); task.wait(0.1) end
+    end
+    local nf = UTILS.createWithStaticStroke("Frame", UI_ELEMENTS.ScreenGui, {
+        Name = "Notification", Size = UDim2.new(0, 280, 0, 75),
+        Position = UDim2.new(1, 20, 1, -105),
+        BackgroundColor3 = Color3.fromRGB(25, 15, 35), BackgroundTransparency = 0.1,
+        ZIndex = 100, ClipsDescendants = true
+    })
+    UTILS.createInstance("UICorner", nf, {CornerRadius = UDim.new(0, 10)})
+    UTILS.createInstance("TextLabel", nf, {
+        Text = title, Size = UDim2.new(1, -40, 0, 22), Position = UDim2.new(0, 10, 0, 6),
+        BackgroundTransparency = 1, TextColor3 = CONFIG.MAIN_COLOR, TextSize = 15,
+        Font = Enum.Font.GothamBold, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 101
+    })
+    UTILS.createInstance("TextLabel", nf, {
+        Text = message, Size = UDim2.new(1, -40, 0, 28), Position = UDim2.new(0, 10, 0, 28),
+        BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(245, 235, 255), TextSize = 13,
+        Font = Enum.Font.Gotham, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left,
+        TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 101
+    })
+    local pc = UTILS.createInstance("Frame", nf, {
+        Size = UDim2.new(1, -70, 0, 3), Position = UDim2.new(0, 10, 1, -10),
+        BackgroundColor3 = Color3.fromRGB(40, 30, 55), BackgroundTransparency = 0.3,
+        BorderSizePixel = 0, ZIndex = 102
+    })
+    UTILS.createInstance("UICorner", pc, {CornerRadius = UDim.new(1, 0)})
+    local pb = UTILS.createInstance("Frame", pc, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = CONFIG.MAIN_COLOR,
+        BorderSizePixel = 0, ZIndex = 103
+    })
+    UTILS.createInstance("UICorner", pb, {CornerRadius = UDim.new(1, 0)})
+    local closeBtn = UTILS.createInstance("TextButton", nf, {
+        Size = UDim2.new(0, 24, 0, 24), Position = UDim2.new(1, -28, 0, 6),
+        BackgroundColor3 = Color3.fromRGB(60, 40, 80), BackgroundTransparency = 0.3,
+        Text = "×", TextColor3 = Color3.fromRGB(220, 220, 220), TextSize = 18,
+        Font = Enum.Font.GothamBold, ZIndex = 105, AutoButtonColor = false
+    })
+    UTILS.createInstance("UICorner", closeBtn, {CornerRadius = UDim.new(1, 0)})
+    closeBtn.MouseButton1Click:Connect(function() UTILS.playClickSound(); removeNotif(nf) end)
+    table.insert(ActiveNotifications, nf); updateStack()
+    local startT = tick()
+    local pc2; pc2 = RunService_OH.Heartbeat:Connect(function()
+        if not nf or not nf.Parent then if pc2 then pc2:Disconnect() end return end
+        local rem = math.max(0, duration - (tick() - startT))
+        pb.Size = UDim2.new(rem / duration, 0, 1, 0)
+    end)
+    task.delay(duration, function()
+        if nf and nf.Parent then removeNotif(nf) end
+        if pc2 then pc2:Disconnect() end
+    end)
+    return nf
+end
+
+function UTILS.createInstance(className, parent, properties)
+    local obj = Instance.new(className, parent)
+    for k, v in pairs(properties) do obj[k] = v end
+    return obj
+end
+
+function UTILS.createWithStaticStroke(className, parent, properties)
+    local obj = UTILS.createInstance(className, parent, properties)
+    if className == "Frame" or className == "TextButton" or className == "ScrollingFrame" then
+        local STROKE_GRADIENT = {
+            Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0,   CONFIG.MAIN_COLOR),
+                ColorSequenceKeypoint.new(0.3, CONFIG.MAIN_COLOR),
+                ColorSequenceKeypoint.new(0.7, CONFIG.MAIN_COLOR),
+                ColorSequenceKeypoint.new(1,   CONFIG.MAIN_COLOR)
+            }),
+            Transparency = NumberSequence.new({
+                NumberSequenceKeypoint.new(0,   0),
+                NumberSequenceKeypoint.new(0.2, 0),
+                NumberSequenceKeypoint.new(0.5, 0.5),
+                NumberSequenceKeypoint.new(0.8, 0.8),
+                NumberSequenceKeypoint.new(1,   1)
+            })
+        }
+        local s = UTILS.createInstance("UIStroke", obj, {Thickness = 2, Color = Color3.fromRGB(255, 255, 255),
+            Transparency = 0, ApplyStrokeMode = Enum.ApplyStrokeMode.Border})
+        UTILS.createInstance("UIGradient", s, {Color = STROKE_GRADIENT.Color,
+            Transparency = STROKE_GRADIENT.Transparency, Rotation = 0})
+    end
+    return obj
+end
+
+function UTILS.updateCanvasSize(sf, cf)
+    if not sf or not cf or not sf:IsA("ScrollingFrame") then return end
+    local h = 0
+    for _, c in ipairs(cf:GetChildren()) do if c:IsA("GuiObject") then h = h + c.AbsoluteSize.Y end end
+    sf.CanvasSize = UDim2.new(0, 0, 0, h + 100); cf.Size = UDim2.new(1, 0, 0, h + 80)
+end
+
+function UTILS.updateTabButtonsContainerSize(c)
+    local h = 0
+    for _, ch in ipairs(c:GetChildren()) do if ch:IsA("GuiObject") then h = h + ch.AbsoluteSize.Y + 8 end end
+    c.CanvasSize = UDim2.new(0, 0, 0, h)
+end
+
+-- OnyxHub-style UI element creators
+local UI_SYSTEM = {}
+
+function UI_SYSTEM.createTabButton(parent, text, positionY, tabName, contentFrame)
+    local tf = UTILS.createWithStaticStroke("Frame", parent, {
+        BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(50, 40, 65),
+        Size = UDim2.new(0, 116, 0, 48), Position = UDim2.new(0, 4, 0, positionY),
+        Name = "Tab_" .. tabName, BackgroundTransparency = 0.7, ZIndex = 12
+    })
+    UTILS.createInstance("UICorner", tf, {CornerRadius = UDim.new(0, 5)})
+    local tb = UTILS.createInstance("TextButton", tf, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "",
+        AutoButtonColor = false, Name = "TabButton_" .. tabName, ZIndex = 15
+    })
+    UTILS.createInstance("TextLabel", tf, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = text,
+        TextColor3 = Color3.fromRGB(240, 230, 250),
+        FontFace = Font.fromEnum(Enum.Font.GothamMedium), TextSize = 13,
+        TextWrapped = true, ZIndex = 13
+    })
+    local scrolling = UTILS.createInstance("ScrollingFrame", contentFrame, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Visible = false,
+        Name = "content_" .. tabName, ScrollingDirection = Enum.ScrollingDirection.Y,
+        ScrollBarThickness = 4, ScrollBarImageColor3 = Color3.fromRGB(120, 100, 150),
+        CanvasSize = UDim2.new(0, 0, 0, 0), BorderSizePixel = 0, ZIndex = 5
+    })
+    local cc = UTILS.createInstance("Frame", scrolling, {
+        Size = UDim2.new(1, 0, 0, 0), BackgroundTransparency = 1,
+        Name = "contentContainer_" .. tabName, ZIndex = 5
+    })
+    return tb, tf, cc, nil, scrolling
+end
+
+function UI_SYSTEM.createToggle(parent, text, positionY, stateTable, stateKey, callback)
+    local frame = UTILS.createWithStaticStroke("Frame", parent, {
+        Name = text .. "Toggle", Size = UDim2.new(1, -20, 0, 45),
+        Position = UDim2.new(0, 10, 0, positionY),
+        BackgroundColor3 = Color3.fromRGB(35, 25, 45), BackgroundTransparency = 0.5, ZIndex = 5
+    })
+    UTILS.createInstance("UICorner", frame, {CornerRadius = UDim.new(0, 8)})
+    UTILS.createInstance("TextLabel", frame, {
+        Text = text, Size = UDim2.new(1, -60, 1, 0), Position = UDim2.new(0, 15, 0, 0),
+        BackgroundTransparency = 1, TextColor3 = Color3.fromRGB(230, 230, 230),
+        TextSize = 14, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    local switchBg = UTILS.createInstance("Frame", frame, {
+        Size = UDim2.new(0, 40, 0, 20), Position = UDim2.new(1, -55, 0.5, -10),
+        BackgroundColor3 = stateTable[stateKey] and CONFIG.MAIN_COLOR or Color3.fromRGB(60, 50, 70),
+        ZIndex = 6, BorderSizePixel = 0
+    })
+    UTILS.createInstance("UICorner", switchBg, {CornerRadius = UDim.new(1, 0)})
+    local ball = UTILS.createInstance("Frame", switchBg, {
+        Size = UDim2.new(0, 16, 0, 16),
+        Position = stateTable[stateKey] and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255), ZIndex = 7, BorderSizePixel = 0
+    })
+    UTILS.createInstance("UICorner", ball, {CornerRadius = UDim.new(1, 0)})
+    local btn = UTILS.createInstance("TextButton", frame, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 8
+    })
+    btn.MouseButton1Click:Connect(function()
+        stateTable[stateKey] = not stateTable[stateKey]
+        local on = stateTable[stateKey]
+        TweenService:Create(switchBg, TweenInfo.new(0.3), {
+            BackgroundColor3 = on and CONFIG.MAIN_COLOR or Color3.fromRGB(60, 50, 70)
+        }):Play()
+        TweenService:Create(ball, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
+            Position = on and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8)
+        }):Play()
+        if callback then task.spawn(callback, on) end
+        UTILS.playClickSound()
+    end)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(frame, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(45, 35, 55), BackgroundTransparency = 0.3
+        }):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(frame, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(35, 25, 45), BackgroundTransparency = 0.5
+        }):Play()
+    end)
+    return frame, btn
+end
+
+function UI_SYSTEM.createSlider(parent, title, defaultValue, minValue, maxValue, rounding, callback)
+    local Y = 0 -- This will be managed by the calling function
+    local sliderContainer = UTILS.createWithStaticStroke("Frame", parent, {
+        BackgroundColor3 = Color3.fromRGB(40, 30, 55), BackgroundTransparency = 0.3,
+        BorderSizePixel = 0, Size = UDim2.new(1, -20, 0, 60),
+        Position = UDim2.new(0, 10, 0, Y), ZIndex = 5
+    })
+    UTILS.createInstance("UICorner", sliderContainer, {CornerRadius = UDim.new(0, 8)})
+
+    local titleLabel = UTILS.createInstance("TextLabel", sliderContainer, {
+        Text = title, TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 14,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(0.7, 0, 0, 20),
+        Position = UDim2.new(0, 10, 0, 5), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+
+    local valueLabel = UTILS.createInstance("TextLabel", sliderContainer, {
+        Text = tostring(defaultValue), TextColor3 = CONFIG.MAIN_COLOR, TextSize = 14,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(0.3, -20, 0, 20),
+        Position = UDim2.new(0.7, 0, 0, 5), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 6
+    })
+
+    local sliderBg = UTILS.createInstance("Frame", sliderContainer, {
+        Size = UDim2.new(1, -20, 0, 10), Position = UDim2.new(0, 10, 0, 30),
+        BackgroundColor3 = Color3.fromRGB(60, 50, 70), ZIndex = 6, BorderSizePixel = 0
+    })
+    UTILS.createInstance("UICorner", sliderBg, {CornerRadius = UDim.new(1, 0)})
+
+    local sliderFill = UTILS.createInstance("Frame", sliderBg, {
+        Size = UDim2.new((defaultValue - minValue) / (maxValue - minValue), 0, 1, 0),
+        BackgroundColor3 = CONFIG.MAIN_COLOR, ZIndex = 7, BorderSizePixel = 0
+    })
+    UTILS.createInstance("UICorner", sliderFill, {CornerRadius = UDim.new(1, 0)})
+
+    local thumb = UTILS.createInstance("Frame", sliderBg, {
+        Size = UDim2.new(0, 20, 0, 20), AnchorPoint = Vector2.new(0.5, 0.5),
+        Position = UDim2.new((defaultValue - minValue) / (maxValue - minValue), 0, 0.5, 0),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255), ZIndex = 15, BorderSizePixel = 0
+    })
+    UTILS.createInstance("UICorner", thumb, {CornerRadius = UDim.new(1, 0)})
+    UTILS.createInstance("UIStroke", thumb, {Thickness = 2, Color = CONFIG.MAIN_COLOR})
+
+    local isDrag = false
+    local function updateSlider(inputX)
+        local width = sliderBg.AbsoluteSize.X
+        local newX = math.clamp(inputX - sliderBg.AbsolutePosition.X, 0, width)
+        local percentage = newX / width
+        local value = minValue + (maxValue - minValue) * percentage
+        if rounding then value = math.floor(value / rounding) * rounding end
+        value = math.clamp(value, minValue, maxValue)
+
+        TweenService:Create(sliderFill, TweenInfo.new(0.05), {Size = UDim2.new((value - minValue) / (maxValue - minValue), 0, 1, 0)}):Play()
+        TweenService:Create(thumb, TweenInfo.new(0.05), {Position = UDim2.new((value - minValue) / (maxValue - minValue), 0, 0.5, 0)}):Play()
+        valueLabel.Text = tostring(value)
+        if callback then callback(value) end
+    end
+
+    local clickDetector = UTILS.createInstance("TextButton", sliderContainer, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 10
+    })
+    clickDetector.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDrag = true
+            updateSlider(input.Position.X)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if isDrag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateSlider(input.Position.X)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            isDrag = false
+        end
+    end)
+
+    return sliderContainer
+end
+
+function UI_SYSTEM.createButton(parent, title, callback)
+    local button = UTILS.createWithStaticStroke("TextButton", parent, {
+        Size = UDim2.new(1, -20, 0, CONFIG.BUTTON_HEIGHT), Position = UDim2.new(0, 10, 0, 0),
+        BackgroundColor3 = Color3.fromRGB(35, 25, 45), BackgroundTransparency = 0.5,
+        Text = title, TextColor3 = Color3.fromRGB(230, 230, 230), TextSize = 14,
+        Font = Enum.Font.Gotham, ZIndex = 6
+    })
+    UTILS.createInstance("UICorner", button, {CornerRadius = UDim.new(0, 8)})
+    button.MouseButton1Click:Connect(function()
+        UTILS.playClickSound()
+        if callback then callback() end
+    end)
+    button.MouseEnter:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(45, 35, 55), BackgroundTransparency = 0.3
+        }):Play()
+    end)
+    button.MouseLeave:Connect(function()
+        TweenService:Create(button, TweenInfo.new(0.2), {
+            BackgroundColor3 = Color3.fromRGB(35, 25, 45), BackgroundTransparency = 0.5
+        }):Play()
+    end)
+    return button
+end
+
+function UI_SYSTEM.createDropdown(parent, title, values, multi, defaultValue, callback)
+    local dropdownContainer = UTILS.createWithStaticStroke("Frame", parent, {
+        BackgroundColor3 = Color3.fromRGB(40, 30, 55), BackgroundTransparency = 0.3,
+        BorderSizePixel = 0, Size = UDim2.new(1, -20, 0, CONFIG.BUTTON_HEIGHT),
+        Position = UDim2.new(0, 10, 0, 0), ZIndex = 5
+    })
+    UTILS.createInstance("UICorner", dropdownContainer, {CornerRadius = UDim.new(0, 8)})
+
+    local selectedText = UTILS.createInstance("TextLabel", dropdownContainer, {
+        Text = defaultValue or "Select an option", TextColor3 = Color3.fromRGB(230, 230, 230), TextSize = 14,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -40, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+
+    local arrow = UTILS.createInstance("TextLabel", dropdownContainer, {
+        Text = "▼", TextColor3 = Color3.fromRGB(230, 230, 230), TextSize = 14,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(0, 20, 1, 0),
+        Position = UDim2.new(1, -30, 0, 0), TextXAlignment = Enum.TextXAlignment.Right, ZIndex = 6
+    })
+
+    local dropdownButton = UTILS.createInstance("TextButton", dropdownContainer, {
+        Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, Text = "", ZIndex = 8
+    })
+
+    local optionsFrame = nil
+    local isOpen = false
+
+    local function closeDropdown()
+        if optionsFrame then
+            optionsFrame:Destroy()
+            optionsFrame = nil
+            isOpen = false
+            arrow.Text = "▼"
+        end
+    end
+
+    dropdownButton.MouseButton1Click:Connect(function()
+        UTILS.playClickSound()
+        if isOpen then
+            closeDropdown()
+        else
+            -- Create options frame
+            optionsFrame = UTILS.createWithStaticStroke("Frame", dropdownContainer.Parent, {
+                BackgroundColor3 = Color3.fromRGB(30, 20, 40), BackgroundTransparency = 0.1,
+                BorderSizePixel = 0, Size = UDim2.new(dropdownContainer.Size.X.Scale, dropdownContainer.Size.X.Offset, 0, #values * 30),
+                Position = UDim2.new(dropdownContainer.Position.X.Scale, dropdownContainer.Position.X.Offset, 0, dropdownContainer.Position.Y.Offset + dropdownContainer.Size.Y.Offset + CONFIG.SPACING),
+                ZIndex = 10
+            })
+            UTILS.createInstance("UICorner", optionsFrame, {CornerRadius = UDim.new(0, 8)})
+
+            local currentY = 0
+            for i, value in ipairs(values) do
+                local optionButton = UTILS.createInstance("TextButton", optionsFrame, {
+                    Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 0, currentY),
+                    BackgroundColor3 = Color3.fromRGB(35, 25, 45), BackgroundTransparency = 1,
+                    Text = value, TextColor3 = Color3.fromRGB(230, 230, 230), TextSize = 14,
+                    Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 11
+                })
+                optionButton.MouseButton1Click:Connect(function()
+                    UTILS.playClickSound()
+                    selectedText.Text = value
+                    if callback then callback(value) end
+                    closeDropdown()
+                end)
+                currentY = currentY + 30
+            end
+            isOpen = true
+            arrow.Text = "▲"
+        end
+    end)
+
+    return dropdownContainer
+end
+
+local UI_INIT = {}
+
+function UI_INIT.init()
+    UI_ELEMENTS.ScreenGui = UTILS.createInstance("ScreenGui", CoreGui, {
+        Name = "BloxFruitsGUI", ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        ResetOnSpawn = false, DisplayOrder = 100
+    })
+    UI_ELEMENTS.OpenCloseGui = UTILS.createInstance("ScreenGui", CoreGui, {
+        Name = "BloxFruitsOpenCloseGUI", ZIndexBehavior = Enum.ZIndexBehavior.Global,
+        ResetOnSpawn = false, DisplayOrder = 99
+    })
+    local oc = UTILS.createWithStaticStroke("Frame", UI_ELEMENTS.OpenCloseGui, {
+        BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(30, 20, 40),
+        Size = UDim2.new(0, 50, 0, 50), Position = UDim2.new(0, 20, 0, 20),
+        Name = "open close", BackgroundTransparency = 0.5, ZIndex = 5
+    })
+    UTILS.createInstance("UICorner", oc, {CornerRadius = UDim.new(0, 8)})
+    local ocBtn = UTILS.createInstance("TextButton", oc, {
+        Name = "OpenCloseButton", Text = "", BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0), ZIndex = 6
+    })
+    UI_ELEMENTS.MainFrame = UTILS.createWithStaticStroke("Frame", UI_ELEMENTS.ScreenGui, {
+        BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(30, 20, 40),
+        Size = UDim2.new(0, 522, 0, 306), Position = UDim2.new(0, 130, 0, -14),
+        Name = "mainFrame", BackgroundTransparency = 0.5, Visible = true, ZIndex = 5
+    })
+    UTILS.createInstance("UICorner", UI_ELEMENTS.MainFrame, {CornerRadius = UDim.new(0, 5)})
+    UI_ELEMENTS.TabButtonsContainer = UTILS.createWithStaticStroke("ScrollingFrame", UI_ELEMENTS.MainFrame, {
+        ScrollingDirection = Enum.ScrollingDirection.Y, BorderSizePixel = 0,
+        BackgroundColor3 = Color3.fromRGB(40, 30, 50), Name = "tabButtonsContainer",
+        Size = UDim2.new(0, 124, 0, 258), Position = UDim2.new(0, 390, 0, 40),
+        ScrollBarThickness = 6, ScrollBarImageColor3 = Color3.fromRGB(120, 100, 150),
+        BackgroundTransparency = 0.3, CanvasSize = UDim2.new(0, 0, 0, 0), ZIndex = 10
+    })
+    UTILS.createInstance("UICorner", UI_ELEMENTS.TabButtonsContainer, {CornerRadius = UDim.new(0, 5)})
+    UI_ELEMENTS.ContentFrame = UTILS.createWithStaticStroke("Frame", UI_ELEMENTS.MainFrame, {
+        BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        Size = UDim2.new(0, 376, 0, 258), Position = UDim2.new(0, 6, 0, 40),
+        Name = "contentFrame", BackgroundTransparency = 1, ZIndex = 5
+    })
+    -- Header
+    local header = UTILS.createWithStaticStroke("Frame", UI_ELEMENTS.MainFrame, {
+        BorderSizePixel = 0, BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        Size = UDim2.new(0, 510, 0, 26), Position = UDim2.new(0, 6, 0, 6),
+        Name = "header", BackgroundTransparency = 1, ZIndex = 5
+    })
+    UTILS.createInstance("TextLabel", header, {
+        Text = "Blox Fruits OnyxHub", BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        TextSize = 16, Font = Enum.Font.GothamBold, TextColor3 = Color3.fromRGB(240, 230, 250),
+        BackgroundTransparency = 1, Size = UDim2.new(0, 400, 0, 30),
+        Position = UDim2.new(0, 44, 0, -2), ZIndex = 6
+    })
+
+    local function toggleGUI()
+        STATES.GUIVisible = not STATES.GUIVisible
+        UI_ELEMENTS.MainFrame.Visible = STATES.GUIVisible
+    end
+    ocBtn.MouseButton1Click:Connect(function() UTILS.playClickSound(); toggleGUI() end)
+
+    -- Blox Fruits Tabs
+    local bfTabNames = {"Main", "Melee", "Quests", "SeaEvent", "Mirage", "Drago", "Prehistoric", "Raids", "Travel", "Fruit", "Misc", "Shop", "Combat", "Settings"}
+    local tabButtons, tabFrames = {}, {}
+    UI_ELEMENTS.Tabs = {Contents = {}, Scrolls = {}}
+    local activeTab = "Main"
+
+    for i, tabName in ipairs(bfTabNames) do
+        local posY = 4 + ((i - 1) * 56)
+        local btn, tf, cc, _, scroll = UI_SYSTEM.createTabButton(
+            UI_ELEMENTS.TabButtonsContainer, tabName, posY, tabName, UI_ELEMENTS.ContentFrame
+        )
+        tabButtons[tabName] = btn; tabFrames[tabName] = tf
+        UI_ELEMENTS.Tabs.Contents[tabName] = cc; UI_ELEMENTS.Tabs.Scrolls[tabName] = scroll
+        btn.MouseButton1Click:Connect(function()
+            UTILS.playClickSound()
+            for n, f in pairs(tabFrames) do
+                if f then f.BackgroundColor3 = Color3.fromRGB(50, 40, 65); f.BackgroundTransparency = 0.7 end
+            end
+            for n, s in pairs(UI_ELEMENTS.Tabs.Scrolls) do if s then s.Visible = false end end
+            if tf then tf.BackgroundColor3 = Color3.fromRGB(80, 60, 100); tf.BackgroundTransparency = 0.3 end
+            if scroll then scroll.Visible = true end
+            activeTab = tabName
+        end)
+    end
+    UTILS.updateTabButtonsContainerSize(UI_ELEMENTS.TabButtonsContainer)
+    if tabFrames["Main"] then tabFrames["Main"].BackgroundColor3 = Color3.fromRGB(80, 60, 100); tabFrames["Main"].BackgroundTransparency = 0.3 end
+    if UI_ELEMENTS.Tabs.Scrolls["Main"] then UI_ELEMENTS.Tabs.Scrolls["Main"].Visible = true end
+
+    -- Call content creation functions for each tab
+    -- These functions will be defined later, mapping Fluent controls to OnyxHub controls
+
+    if UI_ELEMENTS.Tabs.Contents["Main"] then
+        UI_SYSTEM.createMainTabContent(UI_ELEMENTS.Tabs.Contents["Main"])
+    end
+    if UI_ELEMENTS.Tabs.Contents["Melee"] then
+        UI_SYSTEM.createMeleeTabContent(UI_ELEMENTS.Tabs.Contents["Melee"])
+    end
+    if UI_ELEMENTS.Tabs.Contents["Quests"] then
+        UI_SYSTEM.createQuestsTabContent(UI_ELEMENTS.Tabs.Contents["Quests"])
+    end
+    if UI_ELEMENTS.Tabs.Contents["SeaEvent"] then
+        UI_SYSTEM.createSeaEventTabContent(UI_ELEMENTS.Tabs.Contents["SeaEvent"])
+    end
+    if UI_ELEMENTS.Tabs.Contents["Mirage"] then
+        UI_SYSTEM.createMirageTabContent(UI_ELEMENTS.Tabs.Contents["Mirage"])
+    end
+    if UI_ELEMENTS.Tabs.Contents["Drago"] then
+        UI_SYSTEM.createDragoTabContent(UI_ELEMENTS.Tabs.Contents["Drago"])
+    end
+        if UI_ELEMENTS.Tabs.Contents["Prehistoric"] then
+            UI_SYSTEM.createPrehistoricTabContent(UI_ELEMENTS.Tabs.Contents["Prehistoric"])
+        end
+        if UI_ELEMENTS.Tabs.Contents["Raids"] then
+            UI_SYSTEM.createRaidsTabContent(UI_ELEMENTS.Tabs.Contents["Raids"])
+        end
+        if UI_ELEMENTS.Tabs.Contents["Combat"] then
+            UI_SYSTEM.createCombatTabContent(UI_ELEMENTS.Tabs.Contents["Combat"])
+        end
+        if UI_ELEMENTS.Tabs.Contents["Travel"] then
+            UI_SYSTEM.createTravelTabContent(UI_ELEMENTS.Tabs.Contents["Travel"])
+        end
+        if UI_ELEMENTS.Tabs.Contents["Fruit"] then
+            UI_SYSTEM.createFruitTabContent(UI_ELEMENTS.Tabs.Contents["Fruit"])
+        end
+        if UI_ELEMENTS.Tabs.Contents["Shop"] then
+            UI_SYSTEM.createShopTabContent(UI_ELEMENTS.Tabs.Contents["Shop"])
+        end
+        if UI_ELEMENTS.Tabs.Contents["Misc"] then
+            UI_SYSTEM.createMiscTabContent(UI_ELEMENTS.Tabs.Contents["Misc"])
+        if UI_ELEMENTS.Tabs.Contents["Settings"] then
+            UI_SYSTEM.createSettingsTabContent(UI_ELEMENTS.Tabs.Contents["Settings"])
+        end
+        end
+
+    -- Initial call to update canvas size for the active tab
+    if UI_ELEMENTS.Tabs.Contents[activeTab] then
+        UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls[activeTab], UI_ELEMENTS.Tabs.Contents[activeTab])
+    end
+end
+
+
+function UI_SYSTEM.createInput(parent, title, defaultValue, callback)
+    local inputContainer = UTILS.createWithStaticStroke("Frame", parent, {
+        BackgroundColor3 = Color3.fromRGB(40, 30, 55), BackgroundTransparency = 0.3,
+        BorderSizePixel = 0, Size = UDim2.new(1, -20, 0, CONFIG.BUTTON_HEIGHT),
+        Position = UDim2.new(0, 10, 0, 0), ZIndex = 5
+    })
+    UTILS.createInstance("UICorner", inputContainer, {CornerRadius = UDim.new(0, 8)})
+
+    local inputTextBox = UTILS.createInstance("TextBox", inputContainer, {
+        Text = defaultValue or "", TextColor3 = Color3.fromRGB(230, 230, 230), TextSize = 14,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6,
+        ClearTextOnFocus = false
+    })
+
+    inputTextBox.FocusLost:Connect(function(enterPressed)
+        if enterPressed then
+            UTILS.playClickSound()
+            if callback then callback(inputTextBox.Text) end
+        end
+    end)
+
+    return inputContainer
+end
+
+function UI_SYSTEM.createMainTabContent(content)
+    local currentY = 10
+
+    -- Auto Farm Level
+    UI_SYSTEM.createToggle(content, "Auto Farm Level", currentY, STATES, "FarmLevel", function(value)
+        _G.Level = value
+    end)
+    STATES.FarmLevel = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Travel Dressrosa
+    UI_SYSTEM.createToggle(content, "Auto Travel Dressrosa", currentY, STATES, "TravelDress", function(value)
+        _G.TravelDres = value
+    end)
+    STATES.TravelDress = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Zou Quest
+    UI_SYSTEM.createToggle(content, "Auto Zou Quest", currentY, STATES, "AutoZou", function(value)
+        _G.AutoZou = value
+    end)
+    STATES.AutoZou = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Farm Nearest
+    UI_SYSTEM.createToggle(content, "Auto Farm Nearest", currentY, STATES, "AutoFarmNear", function(value)
+        _G.AutoFarmNear = value
+    end)
+    STATES.AutoFarmNear = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Factory Raid
+    UI_SYSTEM.createToggle(content, "Auto Factory Raid", currentY, STATES, "AutoFactory", function(value)
+        _G.AutoFactory = value
+    end)
+    STATES.AutoFactory = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Pirate Raid
+    UI_SYSTEM.createToggle(content, "Auto Pirate Raid", currentY, STATES, "AutoRaidCastle", function(value)
+        _G.AutoRaidCastle = value
+    end)
+    STATES.AutoRaidCastle = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Choose Material Dropdown (Fluent: Test = Tabs.Main:AddDropdown("Test",{Title = "Choose Material",Values = MaterialList,Multi = false,Default = nil}))
+    -- MaterialList needs to be defined globally or passed in
+    -- For now, let's assume MaterialList is available globally as in the original script
+    UI_SYSTEM.createDropdown(content, "Choose Material", MaterialList, false, nil, function(value)
+        getgenv().SelectMaterial = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Materials Toggle (Fluent: Toggle = Tabs.Main:AddToggle("Toggle", {Title = "Auto Materials", Description = "", Default = false}))
+    UI_SYSTEM.createToggle(content, "Auto Materials", currentY, STATES, "AutoMaterial", function(value)
+        getgenv().AutoMaterial = value
+    end)
+    STATES.AutoMaterial = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Farm Ectoplasm Toggle (Fluent: Q = Tabs.Main:AddToggle("Q", {Title = "Auto Farm Ectoplasm", Description = "", Default = false}))
+    UI_SYSTEM.createToggle(content, "Auto Farm Ectoplasm", currentY, STATES, "AutoEctoplasm", function(value)
+        _G.AutoEctoplasm = value
+    end)
+    STATES.AutoEctoplasm = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Done Bartilo Quest Toggle (Fluent: Bartilo = Tabs.Main:AddToggle("Bartilo", {Title = "Auto Done Bartilo Quest", Description = "", Default = false}))
+    UI_SYSTEM.createToggle(content, "Auto Done Bartilo Quest", currentY, STATES, "Bartilo_Quest", function(value)
+        _G.Bartilo_Quest = value
+    end)
+    STATES.Bartilo_Quest = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Add more elements for Main tab here following the same pattern
+
+    -- Update canvas size after adding all elements
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Main"], content)
+end
+
+-- Call content creation functions for each tab in UI_INIT.init()
+-- This part needs to be inserted into the UI_INIT.init() function
+-- I will edit the UI_INIT.init() function to include these calls.
+
+function UI_SYSTEM.createMeleeTabContent(content)
+    local currentY = 10
+
+    -- Auto Superhuman
+    UI_SYSTEM.createToggle(content, "Auto Superhuman", currentY, STATES, "Auto_SuperHuman", function(value)
+        _G.Auto_SuperHuman = value
+    end)
+    STATES.Auto_SuperHuman = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto DeathStep
+    UI_SYSTEM.createToggle(content, "Auto DeathStep", currentY, STATES, "AutoDeathStep", function(value)
+        _G.AutoDeathStep = value
+    end)
+    STATES.AutoDeathStep = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Sharkman Karate
+    UI_SYSTEM.createToggle(content, "Auto Sharkman Karate", currentY, STATES, "Auto_SharkMan_Karate", function(value)
+        _G.Auto_SharkMan_Karate = value
+    end)
+    STATES.Auto_SharkMan_Karate = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto ElectricClaw
+    UI_SYSTEM.createToggle(content, "Auto ElectricClaw", currentY, STATES, "Auto_Electric_Claw", function(value)
+        _G.Auto_Electric_Claw = value
+    end)
+    STATES.Auto_Electric_Claw = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto DragonTalon
+    UI_SYSTEM.createToggle(content, "Auto DragonTalon", currentY, STATES, "AutoDragonTalon", function(value)
+        _G.AutoDragonTalon = value
+    end)
+    STATES.AutoDragonTalon = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Godhuman
+    UI_SYSTEM.createToggle(content, "Auto Godhuman", currentY, STATES, "Auto_God_Human", function(value)
+        _G.Auto_God_Human = value
+    end)
+    STATES.Auto_God_Human = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto SanguineArt
+    UI_SYSTEM.createToggle(content, "Auto SanguineArt", currentY, STATES, "Auto_SanguineArt", function(value)
+        _G.Auto_SanguineArt = value
+    end)
+    STATES.Auto_SanguineArt = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Update canvas size after adding all elements
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Melee"], content)
+end
+
+function UI_SYSTEM.createQuestsTabContent(content)
+    local currentY = 10
+
+    -- Auto Elite Quest
+    UI_SYSTEM.createToggle(content, "Auto Elite Quest", currentY, STATES, "FarmEliteHunt", function(value)
+        _G.FarmEliteHunt = value
+    end)
+    STATES.FarmEliteHunt = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Stop when got God\'s Chalice
+    UI_SYSTEM.createToggle(content, "Stop when got God\'s Chalice", currentY, STATES, "StopWhenChalice", function(value)
+        _G.StopWhenChalice = value
+    end)
+    STATES.StopWhenChalice = true -- Default value from original script
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Tushita Sword
+    UI_SYSTEM.createToggle(content, "Auto Tushita Sword", currentY, STATES, "Auto_Tushita", function(value)
+        _G.Auto_Tushita = value
+    end)
+    STATES.Auto_Tushita = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Yama Sword
+    UI_SYSTEM.createToggle(content, "Auto Yama Sword", currentY, STATES, "Auto_Yama", function(value)
+        _G.Auto_Yama = value
+    end)
+    STATES.Auto_Yama = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Cursed Dual Katana Section (Fluent: Tabs.Quests:AddSection("Cursed Dual Katana"))
+    -- For sections, we can just add a TextLabel as a header
+    local sectionHeader = UTILS.createInstance("TextLabel", content, {
+        Text = "Cursed Dual Katana", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40 -- Adjust Y for section header
+
+    -- Number Cursed dual katana quests (Fluent: Tabs.Quests:AddParagraph({Title = " Number Cursed dual katana quests ",Content = "Quest Numbers :"}))
+    -- This will require a custom TextLabel that can be updated dynamically
+    local cdkQuestStatusLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "Quest Numbers :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.CDKQuestStatusLabel = cdkQuestStatusLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Auto Get CDK [ Last Quest ]
+    UI_SYSTEM.createToggle(content, "Auto Get CDK [ Last Quest ]", currentY, STATES, "CDK", function(value)
+        _G.CDK = value
+    end)
+    STATES.CDK = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Yama CDK
+    UI_SYSTEM.createToggle(content, "Auto Yama CDK", currentY, STATES, "CDK_YM", function(value)
+        _G.CDK_YM = value
+    end)
+    STATES.CDK_YM = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Tushita CDK (Assuming this is similar to Yama CDK and exists in the original script)
+    -- Based on the grep results, it seems to be there around line 2977
+    UI_SYSTEM.createToggle(content, "Auto Tushita CDK", currentY, STATES, "CDK_TS", function(value)
+        _G.CDK_TS = value
+    end)
+    STATES.CDK_TS = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Buy Legendary Sword Button (Fluent: Tabs.Quests:AddButton({Title = "Buy Legendary Sword", Description = "", Callback = function() ... end}))
+    UI_SYSTEM.createButton(content, "Buy Legendary Sword", function()
+        -- Original callback logic goes here
+        -- Example: replicated.Remotes.CommF_:InvokeServer("BuyLegendarySword")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy True Triple Katana Sword Button
+    UI_SYSTEM.createButton(content, "Buy True Triple Katana Sword", function()
+        -- Original callback logic goes here
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Pole V1
+    UI_SYSTEM.createToggle(content, "Auto Pole V1", currentY, STATES, "AutoPoleV1", function(value)
+        _G.AutoPoleV1 = value
+    end)
+    STATES.AutoPoleV1 = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Pole V2 [Beta]
+    UI_SYSTEM.createToggle(content, "Auto Pole V2 [Beta]", currentY, STATES, "AutoPoleV2", function(value)
+        _G.AutoPoleV2 = value
+    end)
+    STATES.AutoPoleV2 = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Law Sword
+    UI_SYSTEM.createToggle(content, "Auto Law Sword", currentY, STATES, "AutoLawSword", function(value)
+        _G.AutoLawSword = value
+    end)
+    STATES.AutoLawSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Buy Microchip Law Button
+    UI_SYSTEM.createButton(content, "Buy Microchip Law", function()
+        -- Original callback logic goes here
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Start Law Raids Button
+    UI_SYSTEM.createButton(content, "Start Law Raids", function()
+        -- Original callback logic goes here
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Saw Sword
+    UI_SYSTEM.createToggle(content, "Auto Saw Sword", currentY, STATES, "AutoSawSword", function(value)
+        _G.AutoSawSword = value
+    end)
+    STATES.AutoSawSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Saber Sword
+    UI_SYSTEM.createToggle(content, "Auto Saber Sword", currentY, STATES, "AutoSaberSword", function(value)
+        _G.AutoSaberSword = value
+    end)
+    STATES.AutoSaberSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Cybrog
+    UI_SYSTEM.createToggle(content, "Auto Cybrog", currentY, STATES, "AutoCybrog", function(value)
+        _G.AutoCybrog = value
+    end)
+    STATES.AutoCybrog = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Usoap\'s Hat
+    UI_SYSTEM.createToggle(content, "Auto Usoap\'s Hat", currentY, STATES, "AutoUsoapsHat", function(value)
+        _G.AutoUsoapsHat = value
+    end)
+    STATES.AutoUsoapsHat = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Bisento V2
+    UI_SYSTEM.createToggle(content, "Auto Bisento V2", currentY, STATES, "AutoBisentoV2", function(value)
+        _G.AutoBisentoV2 = value
+    end)
+    STATES.AutoBisentoV2 = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Warden Sword
+    UI_SYSTEM.createToggle(content, "Auto Warden Sword", currentY, STATES, "AutoWardenSword", function(value)
+        _G.AutoWardenSword = value
+    end)
+    STATES.AutoWardenSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Marine Coat
+    UI_SYSTEM.createToggle(content, "Auto Marine Coat", currentY, STATES, "AutoMarineCoat", function(value)
+        _G.AutoMarineCoat = value
+    end)
+    STATES.AutoMarineCoat = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Swan Coat
+    UI_SYSTEM.createToggle(content, "Auto Swan Coat", currentY, STATES, "AutoSwanCoat", function(value)
+        _G.AutoSwanCoat = value
+    end)
+    STATES.AutoSwanCoat = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Rengoku Sword
+    UI_SYSTEM.createToggle(content, "Auto Rengoku Sword", currentY, STATES, "AutoRengokuSword", function(value)
+        _G.AutoRengokuSword = value
+    end)
+    STATES.AutoRengokuSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Key Rengoku
+    UI_SYSTEM.createToggle(content, "Auto Key Rengoku", currentY, STATES, "AutoKeyRengoku", function(value)
+        _G.AutoKeyRengoku = value
+    end)
+    STATES.AutoKeyRengoku = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Dragon Trident
+    UI_SYSTEM.createToggle(content, "Auto Dragon Trident", currentY, STATES, "AutoDragonTrident", function(value)
+        _G.AutoDragonTrident = value
+    end)
+    STATES.AutoDragonTrident = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Long Sword
+    UI_SYSTEM.createToggle(content, "Auto Long Sword", currentY, STATES, "AutoLongSword", function(value)
+        _G.AutoLongSword = value
+    end)
+    STATES.AutoLongSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Black Spikey
+    UI_SYSTEM.createToggle(content, "Auto Black Spikey", currentY, STATES, "AutoBlackSpikey", function(value)
+        _G.AutoBlackSpikey = value
+    end)
+    STATES.AutoBlackSpikey = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Dark Blade V3
+    UI_SYSTEM.createToggle(content, "Auto Dark Blade V3", currentY, STATES, "AutoDarkBladeV3", function(value)
+        _G.AutoDarkBladeV3 = value
+    end)
+    STATES.AutoDarkBladeV3 = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Midnight Blade
+    UI_SYSTEM.createToggle(content, "Auto Midnight Blade", currentY, STATES, "AutoMidnightBlade", function(value)
+        _G.AutoMidnightBlade = value
+    end)
+    STATES.AutoMidnightBlade = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Darkbeard
+    UI_SYSTEM.createToggle(content, "Auto Darkbeard", currentY, STATES, "AutoDarkbeard", function(value)
+        _G.AutoDarkbeard = value
+    end)
+    STATES.AutoDarkbeard = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Unlocked DonSwan
+    UI_SYSTEM.createToggle(content, "Auto Unlocked DonSwan", currentY, STATES, "AutoUnlockedDonSwan", function(value)
+        _G.AutoUnlockedDonSwan = value
+    end)
+    STATES.AutoUnlockedDonSwan = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Swan Glasses
+    UI_SYSTEM.createToggle(content, "Auto Swan Glasses", currentY, STATES, "AutoSwanGlasses", function(value)
+        _G.AutoSwanGlasses = value
+    end)
+    STATES.AutoSwanGlasses = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Bigmom
+    UI_SYSTEM.createToggle(content, "Auto Bigmom", currentY, STATES, "AutoBigmom", function(value)
+        _G.AutoBigmom = value
+    end)
+    STATES.AutoBigmom = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Canvendish Sword
+    UI_SYSTEM.createToggle(content, "Auto Canvendish Sword", currentY, STATES, "AutoCanvendishSword", function(value)
+        _G.AutoCanvendishSword = value
+    end)
+    STATES.AutoCanvendishSword = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Twin Hooks
+    UI_SYSTEM.createToggle(content, "Auto Twin Hooks", currentY, STATES, "AutoTwinHooks", function(value)
+        _G.AutoTwinHooks = value
+    end)
+    STATES.AutoTwinHooks = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Serpent Bow
+    UI_SYSTEM.createToggle(content, "Auto Serpent Bow", currentY, STATES, "AutoSerpentBow", function(value)
+        _G.AutoSerpentBow = value
+    end)
+    STATES.AutoSerpentBow = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Lei Accessory
+    UI_SYSTEM.createToggle(content, "Auto Lei Accessory", currentY, STATES, "AutoLeiAccessory", function(value)
+        _G.AutoLeiAccessory = value
+    end)
+    STATES.AutoLeiAccessory = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Update canvas size after adding all elements
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Quests"], content)
+end
+
+
+function UI_SYSTEM.createDragoTabContent(content)
+    local currentY = 10
+
+    -- Auto Dojo Trainer
+    UI_SYSTEM.createToggle(content, "Auto Dojo Trainer", currentY, STATES, "Dojoo", function(value)
+        _G.Dojoo = value
+    end)
+    STATES.Dojoo = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Update canvas size after adding all elements
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Drago"], content)
+end
+
+
+function UI_SYSTEM.createPrehistoricTabContent(content)
+    local currentY = 10
+
+    -- Auto Farm BlazeEM
+    UI_SYSTEM.createToggle(content, "Auto Farm BlazeEM", currentY, STATES, "FarmBlazeEM", function(value)
+        _G.FarmBlazeEM = value
+    end)
+    STATES.FarmBlazeEM = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Update canvas size after adding all elements
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Prehistoric"], content)
+
+    -- Auto Collect Dino Bones
+    UI_SYSTEM.createToggle(content, "Auto Collect Dino Bones", currentY, STATES, "Prehis_DB", function(value)
+        _G.Prehis_DB = value
+    end)
+    STATES.Prehis_DB = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Collect Dragon Eggs
+    UI_SYSTEM.createToggle(content, "Auto Collect Dragon Eggs", currentY, STATES, "Prehis_DE", function(value)
+        _G.Prehis_DE = value
+    end)
+    STATES.Prehis_DE = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Reset When Complete Volcano
+    UI_SYSTEM.createToggle(content, "Auto Reset When Complete Volcano", currentY, STATES, "ResetPH", function(value)
+        _G.ResetPH = value
+    end)
+    STATES.ResetPH = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Update canvas size after adding all elements
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Prehistoric"], content)
+end
+
+function UI_SYSTEM.createSeaEventTabContent(content)
+    local currentY = 10
+
+    -- Sea Event / Setting Sail Section
+    local sectionHeaderSES = UTILS.createInstance("TextLabel", content, {
+        Text = "Sea Event / Setting Sail", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Spy Status Paragraph
+    local spyStatusLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "Spy Status :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.SPYING = spyStatusLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Buy Fracments with Spy Button
+    UI_SYSTEM.createButton(content, "Buy Fragments with Spy", function()
+        replicated:WaitForChild("Remotes"):WaitForChild("CommF_"):InvokeServer("InfoLeviathan","2")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- FlozenDimension Status Paragraph
+    local frozenDimensionStatusLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "FlozenDimension Status :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.FloD = frozenDimensionStatusLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Auto Teleport Frozen Dimension
+    UI_SYSTEM.createToggle(content, "Auto Teleport Frozen Dimension", currentY, STATES, "FrozenTP", function(value)
+        _G.FrozenTP = value
+    end)
+    STATES.FrozenTP = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Drive To Hydra Island
+    UI_SYSTEM.createToggle(content, "Auto Drive To Hydra Island", currentY, STATES, "SailBoat_Hydra", function(value)
+        _G.SailBoat_Hydra = value
+    end)
+    STATES.SailBoat_Hydra = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Choose Boats Dropdown
+    -- ListSeaBoat needs to be defined globally or passed in
+    UI_SYSTEM.createDropdown(content, "Choose Boats", ListSeaBoat, false, 1, function(value)
+        _G.SelectedBoat = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Boats Button
+    UI_SYSTEM.createButton(content, "Buy Boats", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyBoat",_G.SelectedBoat)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Choose Sea Level Dropdown
+    -- ListSeaZone needs to be defined globally or passed in
+    UI_SYSTEM.createDropdown(content, "Choose Sea Level", ListSeaZone, false, 1, function(value)
+        _G.DangerSc = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Sail Boat
+    UI_SYSTEM.createToggle(content, "Auto Sail Boat", currentY, STATES, "SailBoats", function(value)
+        _G.SailBoats = value
+    end)
+    STATES.SailBoats = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Entity Sea Event Section
+    local sectionHeaderESE = UTILS.createInstance("TextLabel", content, {
+        Text = "Entity Sea Event", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Auto Shark
+    UI_SYSTEM.createToggle(content, "Auto Shark", currentY, STATES, "Shark", function(value)
+        _G.Shark = value
+    end)
+    STATES.Shark = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Piranha
+    UI_SYSTEM.createToggle(content, "Auto Piranha", currentY, STATES, "Piranha", function(value)
+        _G.Piranha = value
+    end)
+    STATES.Piranha = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Terror Shark
+    UI_SYSTEM.createToggle(content, "Auto Terror Shark", currentY, STATES, "TerrorShark", function(value)
+        _G.TerrorShark = value
+    end)
+    STATES.TerrorShark = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Fish Crew Member
+    UI_SYSTEM.createToggle(content, "Auto Fish Crew Member", currentY, STATES, "MobCrew", function(value)
+        _G.MobCrew = value
+    end)
+    STATES.MobCrew = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Haunted Crew Member
+    UI_SYSTEM.createToggle(content, "Auto Haunted Crew Member", currentY, STATES, "HCM", function(value)
+        _G.HCM = value
+    end)
+    STATES.HCM = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Attack PirateGrandBrigade
+    UI_SYSTEM.createToggle(content, "Auto Attack PirateGrandBrigade", currentY, STATES, "PGB", function(value)
+        _G.PGB = value
+    end)
+    STATES.PGB = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Attack Fish Boat
+    UI_SYSTEM.createToggle(content, "Auto Attack Fish Boat", currentY, STATES, "FishBoat", function(value)
+        _G.FishBoat = value
+    end)
+    STATES.FishBoat = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Attack Sea Beast
+    UI_SYSTEM.createToggle(content, "Auto Attack Sea Beast", currentY, STATES, "SeaBeast1", function(value)
+        _G.SeaBeast1 = value
+    end)
+    STATES.SeaBeast1 = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Attack Leviathan
+    UI_SYSTEM.createToggle(content, "Auto Attack Leviathan", currentY, STATES, "Leviathan1", function(value)
+        _G.Leviathan1 = value
+    end)
+    STATES.Leviathan1 = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Kitsune Island / Event Section
+    local sectionHeaderKIE = UTILS.createInstance("TextLabel", content, {
+        Text = "Kitsune Island / Event", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Kitsune Island Status Paragraph
+    local kitsuneIslandStatusLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "Kitsune Island Status :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.Check_Kitsu = kitsuneIslandStatusLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Auto Find Kitsune Island
+    UI_SYSTEM.createToggle(content, "Auto Find Kitsune Island", currentY, STATES, "AutofindKitIs", function(value)
+        _G.AutofindKitIs = value
+    end)
+    STATES.AutofindKitIs = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["SeaEvent"], content)
+
+    -- Auto Teleport to Shrine Actived
+    UI_SYSTEM.createToggle(content, "Auto Teleport to Shrine Actived", currentY, STATES, "tweenShrine", function(value)
+        _G.tweenShrine = value
+    end)
+    STATES.tweenShrine = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Collect Azure Ember
+    UI_SYSTEM.createToggle(content, "Auto Collect Azure Ember", currentY, STATES, "Collect_Ember", function(value)
+        _G.Collect_Ember = value
+    end)
+    STATES.Collect_Ember = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Trade Azure Ember
+    UI_SYSTEM.createToggle(content, "Auto Trade Azure Ember", currentY, STATES, "Trade_Ember", function(value)
+        _G.Trade_Ember = value
+    end)
+    STATES.Trade_Ember = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Trade Items Azure Button
+    UI_SYSTEM.createButton(content, "Trade Items Azure", function()
+        replicated.Modules.Net:FindFirstChild("RF/KitsuneStatuePray"):InvokeServer()
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Talk with kitsune statue Button
+    UI_SYSTEM.createButton(content, "Talk with kitsune statue", function()
+        replicated.Modules.Net:FindFirstChild("RE/TouchKitsuneStatue"):FireServer()
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["SeaEvent"], content)
+end
+
+function UI_SYSTEM.createRaidsTabContent(content)
+    local currentY = 10
+
+    -- Dungeon Event / Raiding Section
+    local sectionHeaderDER = UTILS.createInstance("TextLabel", content, {
+        Text = "Dungeon Event / Raiding", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Raiding Status Paragraph
+    local raidingStatusLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "Raiding Status :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.RaidS = raidingStatusLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Select Chip Dropdown
+    -- DungeonTables needs to be defined globally or passed in
+    UI_SYSTEM.createDropdown(content, "Select Chip", DungeonTables, false, 1, function(value)
+        _G.SelectChip = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Select Dungeon Chip
+    UI_SYSTEM.createToggle(content, "Auto Select Dungeon Chip", currentY, STATES, "AutoSelectDungeon", function(value)
+        _G.AutoSelectDungeon = value
+    end)
+    STATES.AutoSelectDungeon = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Buy Dungeon Chips [Beli] Button
+    UI_SYSTEM.createButton(content, "Buy Dungeon Chips [Beli]", function()
+        if not GetBP("Special Microchip") then replicated.Remotes.CommF_:InvokeServer("RaidsNpc","Select",_G.SelectChip) end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Dungeon Chips [Devil Fruit] Button
+    UI_SYSTEM.createButton(content, "Buy Dungeon Chips [Devil Fruit]", function()
+        if GetBP("Special Microchip") then return end
+        local FruitPrice = {}
+        local FruitStore = {}
+        for i,v in next,replicated:WaitForChild("Remotes"):InvokeServer("GetFruits") do
+            if v.Price <= 490000 then table.insert(FruitPrice,v.Name) end 
+        end    
+        for _,y in pairs(FruitPrice) do    
+            for i,v in pairs(DungeonTables) do 
+                if not GetBP("Special Microchip") then     
+                    replicated.Remotes.CommF_:InvokeServer("LoadFruit",tostring(y))	      
+                    replicated.Remotes.CommF_:InvokeServer("RaidsNpc","Select",_G.SelectChip)	
+                end            
+            end    
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Raiding Menu Section
+    local sectionHeaderRM = UTILS.createInstance("TextLabel", content, {
+        Text = "Raiding Menu", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Auto Start Raid
+    UI_SYSTEM.createToggle(content, "Auto Start Raid", currentY, STATES, "Auto_StartRaid", function(value)
+        _G.Auto_StartRaid = value
+    end)
+    STATES.Auto_StartRaid = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Teleport To Lab
+    UI_SYSTEM.createToggle(content, "Teleport To Lab", currentY, STATES, "TpLab", function(value)
+        _G.TpLab = value
+    end)
+    STATES.TpLab = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Complete Raid [Safety]
+    UI_SYSTEM.createToggle(content, "Auto Complete Raid [Safety]", currentY, STATES, "Raiding", function(value)
+        _G.Raiding = value
+    end)
+    STATES.Raiding = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Raids"], content)
+
+    -- Kill Aura
+    UI_SYSTEM.createToggle(content, "Kill Aura", currentY, STATES, "KillH", function(value)
+        _G.KillH = value
+    end)
+    STATES.KillH = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Next Island
+    UI_SYSTEM.createToggle(content, "Auto Next Island", currentY, STATES, "NextIs", function(value)
+        NextIs = value
+    end)
+    STATES.NextIs = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Awakening
+    UI_SYSTEM.createToggle(content, "Auto Awakening", currentY, STATES, "Auto_Awakener", function(value)
+        _G.Auto_Awakener = value
+    end)
+    STATES.Auto_Awakener = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Raids"], content)
+end
+
+function UI_SYSTEM.createCombatTabContent(content)
+    local currentY = 10
+
+    -- Combat / Aimbot Section
+    local sectionHeaderCA = UTILS.createInstance("TextLabel", content, {
+        Text = "Combat / Aimbot", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- All Players On Server Paragraph
+    local allPlayersLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "All Players On Server :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.__indexPlayer = allPlayersLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Aimbot Status Paragraph
+    local aimbotStatusLabel = UTILS.createInstance("TextLabel", content, {
+        Text = "Aimbot Status :", TextColor3 = Color3.fromRGB(200, 190, 220), TextSize = 13,
+        Font = Enum.Font.Gotham, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 6
+    })
+    _G.__AimBotTurn = aimbotStatusLabel -- Make it globally accessible for updates
+    currentY = currentY + 30
+
+    -- Choose Players Dropdown
+    -- PlrList needs to be defined globally or dynamically updated
+    local PlrList = {}
+    for _,v in pairs(game:GetService("Players"):GetChildren()) do table.insert(PlrList, v.Name) end
+    UI_SYSTEM.createDropdown(content, "Choose Players", PlrList, false, 1, function(value)
+        _G.PlayersList = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Teleport to choose players
+    UI_SYSTEM.createToggle(content, "Teleport to choose players", currentY, STATES, "TpPly", function(value)
+        _G.TpPly = value
+    end)
+    STATES.TpPly = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Spectate Choose Players
+    UI_SYSTEM.createToggle(content, "Spectate Choose Players", currentY, STATES, "SpectatePlys", function(value)
+        SpectatePlys = value
+    end)
+    STATES.SpectatePlys = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Choose Aim Method Dropdown
+    local AimbotMethod = {"AimBots Skill","Auto Aimbots"}
+    UI_SYSTEM.createDropdown(content, "Choose Aim Method", AimbotMethod, false, 1, function(value)
+        ABmethod = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Aimbot Method Skills
+    UI_SYSTEM.createToggle(content, "Aimbot Method Skills", currentY, STATES, "AimMethod", function(value)
+        _G.AimMethod = value
+    end)
+    STATES.AimMethod = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Aimbot Camera Closet Players
+    UI_SYSTEM.createToggle(content, "Aimbot Camera Closet Players", currentY, STATES, "AimCam", function(value)
+        _G.AimCam = value
+    end)
+    STATES.AimCam = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Combat"], content)
+
+    -- Instance Mink V3 [ INF ]
+    UI_SYSTEM.createToggle(content, "Instance Mink V3 [ INF ]", currentY, STATES, "InfAblities", function(value)
+        InfAblities = value
+    end)
+    STATES.InfAblities = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Instance Energy [ INF ]
+    UI_SYSTEM.createToggle(content, "Instance Energy [ INF ]", currentY, STATES, "infEnergy", function(value)
+        infEnergy = value
+    end)
+    STATES.infEnergy = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Instance Soru [ INF ]
+    UI_SYSTEM.createToggle(content, "Instance Soru [ INF ]", currentY, STATES, "InfSoru", function(value)
+        _G.InfSoru = value
+    end)
+    STATES.InfSoru = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Instance Observation Range [ INF ]
+    UI_SYSTEM.createToggle(content, "Instance Observation Range [ INF ]", currentY, STATES, "InfiniteObRange", function(value)
+        _G.InfiniteObRange = value
+    end)
+    STATES.InfiniteObRange = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Settings Combat / Aimbot Settings Section
+    local sectionHeaderSCAS = UTILS.createInstance("TextLabel", content, {
+        Text = "Settings Combat / Aimbot Settings", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Ignore Same Teams
+    UI_SYSTEM.createToggle(content, "Ignore Same Teams", currentY, STATES, "NoAimTeam", function(value)
+        _G.NoAimTeam = value
+    end)
+    STATES.NoAimTeam = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Accept Allies
+    UI_SYSTEM.createToggle(content, "Accept Allies", currentY, STATES, "AcceptAlly", function(value)
+        _G.AcceptAlly = value
+    end)
+    STATES.AcceptAlly = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Esp Items / Entity / Island Section
+    local sectionHeaderEIEI = UTILS.createInstance("TextLabel", content, {
+        Text = "Esp Items / Entity / Island", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Combat"], content)
+
+    -- Player ESP
+    UI_SYSTEM.createToggle(content, "Player ESP", currentY, STATES, "PlayerEsp", function(value)
+        PlayerEsp = value
+    end)
+    STATES.PlayerEsp = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Island ESP
+    UI_SYSTEM.createToggle(content, "Island ESP", currentY, STATES, "IslandESP", function(value)
+        IslandESP = value
+    end)
+    STATES.IslandESP = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Devil Fruit ESP
+    UI_SYSTEM.createToggle(content, "Devil Fruit ESP", currentY, STATES, "DevilFruitESP", function(value)
+        DevilFruitESP = value
+    end)
+    STATES.DevilFruitESP = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Flower ESP
+    UI_SYSTEM.createToggle(content, "Flower ESP", currentY, STATES, "FlowerESP", function(value)
+        FlowerESP = value
+    end)
+    STATES.FlowerESP = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Event Island ESP
+    UI_SYSTEM.createToggle(content, "Event Island ESP", currentY, STATES, "EspEventIsland", function(value)
+        EspEventIsland = value
+    end)
+    STATES.EspEventIsland = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Gear ESP
+    UI_SYSTEM.createToggle(content, "Gear ESP", currentY, STATES, "ESPGear", function(value)
+        ESPGear = value
+    end)
+    STATES.ESPGear = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Advanced Fruit ESP
+    UI_SYSTEM.createToggle(content, "Advanced Fruit ESP", currentY, STATES, "advanEsp", function(value)
+        advanEsp = value
+    end)
+    STATES.advanEsp = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Haki Color ESP
+    UI_SYSTEM.createToggle(content, "Haki Color ESP", currentY, STATES, "ColorEsp", function(value)
+        ColorEsp = value
+    end)
+    STATES.ColorEsp = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Combat"], content)
+end
+
+function UI_SYSTEM.createTravelTabContent(content)
+    local currentY = 10
+
+    -- Travel - Worlds Section
+    local sectionHeaderTW = UTILS.createInstance("TextLabel", content, {
+        Text = "Travel - Worlds", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Travel East Blue (World 1) Button
+    UI_SYSTEM.createButton(content, "Travel East Blue (World 1)", function()
+        replicated.Remotes.CommF_:InvokeServer("TravelMain")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Travel Dressrosa (World 2) Button
+    UI_SYSTEM.createButton(content, "Travel Dressrosa (World 2)", function()
+        replicated.Remotes.CommF_:InvokeServer("TravelDressrosa")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Travel Zou (World 3) Button
+    UI_SYSTEM.createButton(content, "Travel Zou (World 3)", function()
+        replicated.Remotes.CommF_:InvokeServer("TravelZou")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Travel - Island Section
+    local sectionHeaderTI = UTILS.createInstance("TextLabel", content, {
+        Text = "Travel - Island", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Select Travelling Dropdown
+    local Location = {}
+    for i,v in pairs(workspace["_WorldOrigin"].Locations:GetChildren()) do  
+        table.insert(Location ,v.Name)
+    end
+    UI_SYSTEM.createDropdown(content, "Select Travelling", Location, false, 1, function(value)
+        _G.Island = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Travel Toggle
+    UI_SYSTEM.createToggle(content, "Auto Travel", currentY, STATES, "Teleport", function(value)
+        _G.Teleport = value
+    end)
+    STATES.Teleport = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Travel - Portal Section
+    local sectionHeaderTP = UTILS.createInstance("TextLabel", content, {
+        Text = "Travel - Portal", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    local Location_Portal = {}
+    if World1 then
+        Location_Portal = {"Sky", "UnderWater"}
+    elseif World2 then
+        Location_Portal = {"SwanRoom", "Cursed Ship"}
+    elseif World3 then
+        Location_Portal = {"Castle On The Sea", "Mansion Cafe", "Hydra Teleport", "Canvendish Room", "Temple of Time"}
+    end
+    UI_SYSTEM.createDropdown(content, "Select Portal", Location_Portal, false, 1, function(value)
+        _G.Island_PT = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- requestEntrance Button
+    UI_SYSTEM.createButton(content, "requestEntrance", function()
+        if _G.Island_PT == "Sky" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(-7894, 5547, -380))
+        elseif _G.Island_PT == "UnderWater" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(61163, 11, 1819))
+        elseif _G.Island_PT == "SwanRoom" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(2285, 15, 905))
+        elseif _G.Island_PT == "Cursed Ship" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(923, 126, 32852))
+        elseif _G.Island_PT == "Castle On The Sea" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(-5097.93164, 316.447021, -3142.66602, -0.405007899, -4.31682743e-08, 0.914313197, -1.90943332e-08, 1, 3.8755779e-08, -0.914313197, -1.76180437e-09, -0.405007899))
+        elseif _G.Island_PT == "Mansion Cafe" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(-12471.169921875, 374.94024658203, -7551.677734375))
+        elseif _G.Island_PT == "Hydra Teleport" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(5643.45263671875, 1013.0858154296875, -340.51025390625))
+        elseif _G.Island_PT == "Canvendish Room" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(5314.54638671875, 22.562219619750977, -127.06755065917969))
+        elseif _G.Island_PT == "Temple of Time" then
+            replicated.Remotes.CommF_:InvokeServer("requestEntrance",Vector3.new(28310.0234, 14895.1123, 109.456741, -0.469690144, -2.85620132e-08, -0.882831335, -3.23509219e-08, 1, -1.51411736e-08, 0.882831335, 2.14487486e-08, -0.469690144))
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Travel - NPCs Section
+    local sectionHeaderTN = UTILS.createInstance("TextLabel", content, {
+        Text = "Travel - NPCs", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Select NPCs Dropdown
+    local NPCList = {}
+    for _, v in pairs(replicated.NPCs:GetChildren()) do table.insert(NPCList, v.Name) end
+    UI_SYSTEM.createDropdown(content, "Select NPCs", NPCList, false, 1, function(value)
+        NPClist = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Tween to NPCs Toggle
+    UI_SYSTEM.createToggle(content, "Auto Tween to NPCs", currentY, STATES, "TPNpc", function(value)
+        _G.TPNpc = value
+    end)
+    STATES.TPNpc = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Travel"], content)
+end
+
+function UI_SYSTEM.createFruitTabContent(content)
+    local currentY = 10
+
+    -- Fruits Options Section
+    local sectionHeaderFO = UTILS.createInstance("TextLabel", content, {
+        Text = "Fruits Options", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    local fruitsOnSale = {}
+    local function addCommas(number)
+        local formatted = tostring(number)
+        while true do  
+            formatted, k = formatted:gsub("^(-?%d+)(%d%d%d)", ",%2")
+            if k == 0 then break end
+        end
+        return formatted
+    end
+    for _, fruitData in pairs(replicated.Remotes.CommF_:InvokeServer("GetFruits",true)) do
+        if fruitData["OnSale"] == true then
+            local priceWithCommas = addCommas(fruitData["Price"])
+            local fruitInfo = fruitData["Name"]
+            table.insert(fruitsOnSale, fruitInfo)
+        end
+    end
+    local Nms = {}
+    for _, fruitData in pairs(replicated.Remotes.CommF_:InvokeServer("GetFruits",false)) do
+        if fruitData["OnSale"] == true then
+            local price = addCommas(fruitData["Price"])
+            local NormalInFO = fruitData["Name"]
+            table.insert(Nms, NormalInFO)
+        end
+    end
+
+    -- Select Fruit Stock Dropdown
+    UI_SYSTEM.createDropdown(content, "Select Fruit Stock", Nms, false, 1, function(value)
+        _G.SelectFruit = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Basic Stock Button
+    UI_SYSTEM.createButton(content, "Buy Basic Stock", function()
+        replicated.Remotes.CommF_:InvokeServer("PurchaseRawFruit",_G.SelectFruit)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Select Mirage Fruit Dropdown
+    UI_SYSTEM.createDropdown(content, "Select Mirage Fruit", fruitsOnSale, false, 1, function(value)
+        SelectF_Adv = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Mirage Stock Button
+    UI_SYSTEM.createButton(content, "Buy Mirage Stock", function()
+        replicated.Remotes.CommF_:InvokeServer("PurchaseRawFruit",SelectF_Adv)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Auto Random Fruit Toggle
+    UI_SYSTEM.createToggle(content, "Auto Random Fruit", currentY, STATES, "Random_Auto", function(value)
+        _G.Random_Auto = value
+    end)
+    STATES.Random_Auto = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Drop Fruit Toggle
+    UI_SYSTEM.createToggle(content, "Auto Drop Fruit", currentY, STATES, "DropFruit", function(value)
+        _G.DropFruit = value
+    end)
+    STATES.DropFruit = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Store Fruit Toggle
+    UI_SYSTEM.createToggle(content, "Auto Store Fruit", currentY, STATES, "StoreF", function(value)
+        _G.StoreF = value
+    end)
+    STATES.StoreF = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Tween to Fruit Toggle
+    UI_SYSTEM.createToggle(content, "Auto Tween to Fruit", currentY, STATES, "TwFruits", function(value)
+        _G.TwFruits = value
+    end)
+    STATES.TwFruits = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Auto Collect Fruit Toggle
+    UI_SYSTEM.createToggle(content, "Auto Collect Fruit", currentY, STATES, "InstanceF", function(value)
+        _G.InstanceF = value
+    end)
+    STATES.InstanceF = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Fruit"], content)
+end
+
+function UI_SYSTEM.createShopTabContent(content)
+    local currentY = 10
+
+    -- Shop Options Section (Fluent had direct buttons, translating to a section with buttons)
+    local sectionHeaderSO = UTILS.createInstance("TextLabel", content, {
+        Text = "Shop Options", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Buy Buso Button
+    UI_SYSTEM.createButton(content, "Buy Buso", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyHaki","Buso")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Geppo Button
+    UI_SYSTEM.createButton(content, "Buy Geppo", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyHaki","Geppo")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Soru Button
+    UI_SYSTEM.createButton(content, "Buy Soru", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyHaki","Soru")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Ken Button
+    UI_SYSTEM.createButton(content, "Buy Ken", function()
+        replicated.Remotes.CommF_:InvokeServer("KenTalk","Buy")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Fighting - Style Section
+    local sectionHeaderFS = UTILS.createInstance("TextLabel", content, {
+        Text = "Fighting - Style", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Buy Black Leg Button
+    UI_SYSTEM.createButton(content, "Buy Black Leg", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyBlackLeg")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Electro Button
+    UI_SYSTEM.createButton(content, "Buy Electro", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyElectro")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Fishman Karate Button
+    UI_SYSTEM.createButton(content, "Buy Fishman Karate", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyFishmanKarate")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy DragonClaw Button
+    UI_SYSTEM.createButton(content, "Buy DragonClaw", function()
+        replicated.Remotes.CommF_:InvokeServer("BlackbeardReward","DragonClaw","2")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Superhuman Button
+    UI_SYSTEM.createButton(content, "Buy Superhuman", function()
+        replicated.Remotes.CommF_:InvokeServer("BuySuperhuman")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Death Step Button
+    UI_SYSTEM.createButton(content, "Buy Death Step", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyDeathStep")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Sharkman Karate Button
+    UI_SYSTEM.createButton(content, "Buy Sharkman Karate", function()
+        replicated.Remotes.CommF_:InvokeServer("BuySharkmanKarate")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy ElectricClaw Button
+    UI_SYSTEM.createButton(content, "Buy ElectricClaw", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyElectricClaw")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy DragonTalon Button
+    UI_SYSTEM.createButton(content, "Buy DragonTalon", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyDragonTalon")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Godhuman Button
+    UI_SYSTEM.createButton(content, "Buy Godhuman", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyGodhuman")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy SanguineArt Button
+    UI_SYSTEM.createButton(content, "Buy SanguineArt", function()
+        replicated.Remotes.CommF_:InvokeServer("BuySanguineArt")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Accessory Section
+    local sectionHeaderAcc = UTILS.createInstance("TextLabel", content, {
+        Text = "Accessory", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Buy Tomoe Ring Button
+    UI_SYSTEM.createButton(content, "Buy Tomoe Ring", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Tomoe Ring")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Black Cape Button
+    UI_SYSTEM.createButton(content, "Buy Black Cape", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Black Cape")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Swordsman Hat Button
+    UI_SYSTEM.createButton(content, "Buy Swordsman Hat", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Swordsman Hat")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Bizarre Rifle Button
+    UI_SYSTEM.createButton(content, "Buy Bizarre Rifle", function()
+        replicated.Remotes.CommF_:InvokeServer("Ectoplasm","Buy", 1)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Ghoul Mask Button
+    UI_SYSTEM.createButton(content, "Buy Ghoul Mask", function()
+        replicated.Remotes.CommF_:InvokeServer("Ectoplasm","Buy", 2)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Accessory SeaEvent Section
+    local sectionHeaderASE = UTILS.createInstance("TextLabel", content, {
+        Text = "Accessory SeaEvent", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Craft Dragonheart Button
+    UI_SYSTEM.createButton(content, "Craft Dragonheart", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","Dragonheart");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft Dragonstorm Button
+    UI_SYSTEM.createButton(content, "Craft Dragonstorm", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","Dragonstorm");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft DinoHood Button
+    UI_SYSTEM.createButton(content, "Craft DinoHood", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","DinoHood");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft SharkTooth Button
+    UI_SYSTEM.createButton(content, "Craft SharkTooth", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","SharkTooth");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft TerrorJaw Button
+    UI_SYSTEM.createButton(content, "Craft TerrorJaw", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","TerrorJaw");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft SharkAnchor Button
+    UI_SYSTEM.createButton(content, "Craft SharkAnchor", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","SharkAnchor");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft LeviathanCrown Button
+    UI_SYSTEM.createButton(content, "Craft LeviathanCrown", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","LeviathanCrown");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft LeviathanShield Button
+    UI_SYSTEM.createButton(content, "Craft LeviathanShield", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","LeviathanShield");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft LeviathanBoat Button
+    UI_SYSTEM.createButton(content, "Craft LeviathanBoat", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","LeviathanBoat");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft LegendaryScroll Button
+    UI_SYSTEM.createButton(content, "Craft LegendaryScroll", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","LegendaryScroll");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Craft MythicalScroll Button
+    UI_SYSTEM.createButton(content, "Craft MythicalScroll", function()
+        replicated.Remotes.CommF_:InvokeServer("CraftItem","Craft","MythicalScroll");
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Weapon World1 Section
+    local sectionHeaderWW1 = UTILS.createInstance("TextLabel", content, {
+        Text = "Weapon World1", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Buy Cutlass Button
+    UI_SYSTEM.createButton(content, "Buy Cutlass", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Cutlass")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Katana Button
+    UI_SYSTEM.createButton(content, "Buy Katana", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Katana")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Iron Mace Button
+    UI_SYSTEM.createButton(content, "Buy Iron Mace", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Iron Mace")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Duel Katana Button
+    UI_SYSTEM.createButton(content, "Buy Duel Katana", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Duel Katana")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Triple Katana Button
+    UI_SYSTEM.createButton(content, "Buy Triple Katana", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Triple Katana")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Pipe Button
+    UI_SYSTEM.createButton(content, "Buy Pipe", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Pipe")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Dual-Headed Blade Button
+    UI_SYSTEM.createButton(content, "Buy Dual-Headed Blade", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Dual-Headed Blade")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Bisento Button
+    UI_SYSTEM.createButton(content, "Buy Bisento", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Bisento")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Soul Cane Button
+    UI_SYSTEM.createButton(content, "Buy Soul Cane", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Soul Cane")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Slingshot Button
+    UI_SYSTEM.createButton(content, "Buy Slingshot", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Slingshot")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Musket Button
+    UI_SYSTEM.createButton(content, "Buy Musket", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Musket")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Dual Flintlock Button
+    UI_SYSTEM.createButton(content, "Buy Dual Flintlock", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Dual Flintlock")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Flintlock Button
+    UI_SYSTEM.createButton(content, "Buy Flintlock", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Flintlock")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Refined Flintlock Button
+    UI_SYSTEM.createButton(content, "Buy Refined Flintlock", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Refined Flintlock")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Cannon Button
+    UI_SYSTEM.createButton(content, "Buy Cannon", function()
+        replicated.Remotes.CommF_:InvokeServer("BuyItem","Cannon")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Kabucha Button
+    UI_SYSTEM.createButton(content, "Buy Kabucha", function()
+        replicated.Remotes.CommF_:InvokeServer("BlackbeardReward","Slingshot","2")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Fragments shop Section
+    local sectionHeaderFS = UTILS.createInstance("TextLabel", content, {
+        Text = "Fragments shop", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Buy Refund Stats Button
+    UI_SYSTEM.createButton(content, "Buy Refund Stats", function()
+        replicated.Remotes.CommF_:InvokeServer("BlackbeardReward","Refund","2")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Reroll Race Button
+    UI_SYSTEM.createButton(content, "Buy Reroll Race", function()
+        replicated.Remotes.CommF_:InvokeServer("BlackbeardReward","Reroll","2")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Ghoul Race (2.5k) Button
+    UI_SYSTEM.createButton(content, "Buy Ghoul Race (2.5k)", function()
+        replicated.Remotes.CommF_:InvokeServer("Ectoplasm"," Change", 4)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Buy Cyborg Race (2.5k) Button
+    UI_SYSTEM.createButton(content, "Buy Cyborg Race (2.5k)", function()
+        replicated.Remotes.CommF_:InvokeServer("CyborgTrainer"," Buy")
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Shop"], content)
+end
+
+function UI_SYSTEM.createMiscTabContent(content)
+    local currentY = 10
+
+    -- Server - Function Section
+    local sectionHeaderSF = UTILS.createInstance("TextLabel", content, {
+        Text = "Server - Function", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Rejoin Server Button
+    UI_SYSTEM.createButton(content, "Rejoin Server", function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId, game.Players.LocalPlayer)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Hop Server Button
+    UI_SYSTEM.createButton(content, "Hop Server", function()
+        Hop()
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Hop to Lowest Players Button
+    UI_SYSTEM.createButton(content, "Hop to Lowest Players", function()
+        local Http = game:GetService("HttpService")
+        local TPS = game:GetService("TeleportService")
+        local Api = "https://games.roblox.com/v1/games/"
+        local _place = game.PlaceId
+        local _servers = Api.._place.."/servers/Public?sortOrder=Asc&limit=100"
+        function ListServers(cursor)
+            local Raw = game:HttpGet(_servers .. ((cursor and "&cursor="..cursor) or ""))
+            return Http:JSONDecode(Raw)
+        end
+        local Server, Next; repeat
+            local Servers = ListServers(Next)
+            Server = Servers.data[1]
+            Next = Servers.nextPageCursor
+        until Server
+        TPS:TeleportToPlaceInstance(_place,Server.id,plr)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Hop to Lowest Pings Server Button
+    UI_SYSTEM.createButton(content, "Hop to Lowest Pings Server", function()
+        local HTTPService = game:GetService("HttpService")
+        local TeleportService = game:GetService("TeleportService")
+        local StatsService = game:GetService("Stats")
+        local function fetchServersData(placeId, limit)
+            local url = string.format("https://games.roblox.com/v1/games/%d/servers/Public?limit=%d", placeId, limit)
+            local success, response = pcall(function()
+                return HTTPService:JSONDecode(game:HttpGet(url))
+            end)
+            if success and response and response.data then
+                return response.data
+            end
+            return nil
+        end
+        local placeId = game.PlaceId
+        local serverLimit = 100
+        local servers = fetchServersData(placeId, serverLimit)
+        if not servers then return end
+        local lowestPingServer = servers[1]
+        for _, server in pairs(servers) do
+            if server["ping"] < lowestPingServer["ping"] and server.maxPlayers > server.playing then
+                lowestPingServer = server
+            end
+        end
+        local commonLoadTime = 0.5
+        task.wait(commonLoadTime)
+        local pingThreshold = 100
+        local serverStats = StatsService.Network.ServerStatsItem
+        local dataPing = serverStats["Data Ping"]:GetValueString()
+        local pingValue = tonumber(dataPing:match("(%d+)"))
+        if pingValue >= pingThreshold then
+            TeleportService:TeleportToPlaceInstance(placeId, lowestPingServer.id)
+        else
+            --pings
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- JobID Input
+    UI_SYSTEM.createInput(content, "JobID", "", function(value)
+        _G.JobId = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Teleport [Job ID] Button
+    UI_SYSTEM.createButton(content, "Teleport [Job ID]", function()
+        replicated['__ServerBrowser']:InvokeServer("teleport",_G.JobId)
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Copy JobID Button
+    UI_SYSTEM.createButton(content, "Copy JobID", function()
+        setclipboard(tostring(game.JobId))
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Player Gui / Others Section
+    local sectionHeaderPGO = UTILS.createInstance("TextLabel", content, {
+        Text = "Player Gui / Others", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Open Awakenings Expert Button
+    UI_SYSTEM.createButton(content, "Open Awakenings Expert", function()
+        plr.PlayerGui.Main.AwakeningToggler.Visible = true
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Open Title Selection Button
+    UI_SYSTEM.createButton(content, "Open Title Selection", function()
+        replicated.Remotes.CommF_:InvokeServer("getTitles",true)
+        plr.PlayerGui.Main.Titles.Visible = true
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Disable Chat GUI Toggle
+    UI_SYSTEM.createToggle(content, "Disable Chat GUI", currentY, STATES, "Rechat", function(value)
+        _G.Rechat = value
+        if  _G.Rechat == true then
+            local StarterGui = game:GetService('StarterGui')
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, false)    
+        elseif _G.chat == false then
+            local StarterGui = game:GetService('StarterGui')
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Chat, true)    
+        end
+    end)
+    STATES.Rechat = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Disable Leader Board GUI Toggle
+    UI_SYSTEM.createToggle(content, "Disable Leader Board GUI", currentY, STATES, "ReLeader", function(value)
+        ReLeader = value
+        if ReLeader == true then
+            local StarterGui = game:GetService('StarterGui')
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, false)   
+        elseif ReLeader == false then
+            local StarterGui = game:GetService('StarterGui')
+            StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.PlayerList, true)   
+        end
+    end)
+    STATES.ReLeader = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Set Pirate Team Button
+    UI_SYSTEM.createButton(content, "Set Pirate Team", function()
+        Pirates()
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Set Marine Team Button
+    UI_SYSTEM.createButton(content, "Set Marine Team", function()
+        Marines()
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Unlock All Portals Toggle
+    UI_SYSTEM.createToggle(content, "Unlock All Portals", currentY, STATES, "PortalUnLock", function(value)
+        _G.PortalUnLock = value
+    end)
+    STATES.PortalUnLock = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Graphics / Haki Stats Section
+    local sectionHeaderGHS = UTILS.createInstance("TextLabel", content, {
+        Text = "Graphics / Haki Stats", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Select Haki States Dropdown
+    local HakiSt = {"State 0","State 1","State 2","State 3","State 4","State 5"}
+    UI_SYSTEM.createDropdown(content, "Select Haki States", HakiSt, false, 1, function(value)
+        _G.SelectStateHaki = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- ChangeBusoStage Button
+    UI_SYSTEM.createButton(content, "ChangeBusoStage", function()
+        if _G.SelectStateHaki == "State 0" then
+            replicated.Remotes.CommF_:InvokeServer("ChangeBusoStage",0)
+        elseif _G.SelectStateHaki == "State 1" then
+            replicated.Remotes.CommF_:InvokeServer("ChangeBusoStage",1)
+        elseif _G.SelectStateHaki == "State 2" then
+            replicated.Remotes.CommF_:InvokeServer("ChangeBusoStage",2)
+        elseif _G.SelectStateHaki == "State 3" then
+            replicated.Remotes.CommF_:InvokeServer("ChangeBusoStage",3)
+        elseif _G.SelectStateHaki == "State 4" then
+            replicated.Remotes.CommF_:InvokeServer("ChangeBusoStage",4)
+        elseif _G.SelectStateHaki == "State 5" then
+            replicated.Remotes.CommF_:InvokeServer("ChangeBusoStage",5)
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Turn on RTX Mode Toggle
+    UI_SYSTEM.createToggle(content, "Turn on RTX Mode", currentY, STATES, "RTXMode", function(value)
+        _G.RTXMode = value
+    end)
+    STATES.RTXMode = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Turn on Fast Mode Button
+    UI_SYSTEM.createButton(content, "Turn on Fast Mode", function()
+        for _,zx in next, workspace:GetDescendants() do
+            if table.find(Past, zx.ClassName) then  zx.Material = "Plastic" end
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Turn on Low CPU Button
+    UI_SYSTEM.createButton(content, "Turn on Low CPU", function()
+        LowCpu()
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Turn on increase Boats Button
+    UI_SYSTEM.createButton(content, "Turn on increase Boats", function()
+        for _, v in pairs(workspace.Boats:GetDescendants()) do
+            if table.find(ListSeaBoat, v.Name) and tostring(v.Owner.Value) == tostring(plr.Name) then              
+                v.VehicleSeat.MaxSpeed = 350
+                v.VehicleSeat.Torque = 0.2
+                v.VehicleSeat.TurnSpeed = 5
+                v.VehicleSeat.HeadsUpDisplay = true
+            end
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Remove Sky Fog Button
+    UI_SYSTEM.createButton(content, "Remove Sky Fog", function()
+        if Lighting:FindFirstChild("LightingLayers") then Lighting.LightingLayers:Destroy() end
+        if Lighting:FindFirstChild("SeaTerrorCC") then Lighting.SeaTerrorCC:Destroy() end
+        if Lighting:FindFirstChild("FantasySky") then Lighting.FantasySky:Destroy() end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Configure - God Section
+    local sectionHeaderCG = UTILS.createInstance("TextLabel", content, {
+        Text = "Configure - God", TextColor3 = Color3.fromRGB(240, 230, 250), TextSize = 16,
+        Font = Enum.Font.GothamBold, BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 30),
+        Position = UDim2.new(0, 10, 0, currentY), TextXAlignment = Enum.TextXAlignment.Center, ZIndex = 6
+    })
+    currentY = currentY + 40
+
+    -- Rain Fruits (Client) Button
+    UI_SYSTEM.createButton(content, "Rain Fruits (Client)", function()
+        for i, v in pairs(game:GetObjects("rbxassetid://14759368201")[1]:GetChildren()) do
+            v.Parent = game.Workspace.Map
+            v:MoveTo(plr.Character.PrimaryPart.Position + Vector3.new(math.random(-50, 50), 100, math.random(-50, 50)))
+            if v.Fruit:FindFirstChild("AnimationController") then
+                v.Fruit:FindFirstChild("AnimationController"):LoadAnimation(v.Fruit:FindFirstChild("Idle")):Play()
+            end
+            v.Handle.Touched:Connect(function(otherPart)
+                if otherPart.Parent == plr.Character then
+                    v.Parent = plr.Backpack
+                    plr.Character.Humanoid:EquipTool(v)
+                end
+            end)
+        end
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Turn on Full Bright Toggle
+    UI_SYSTEM.createToggle(content, "Turn on Full Bright", currentY, STATES, "bright", function(value)
+        bright = value
+        if value == true then
+            Lighting.Ambient = Color3.new(1, 1, 1)
+            Lighting.ColorShift_Bottom = Color3.new(1, 1, 1)
+            Lighting.ColorShift_Top = Color3.new(1, 1, 1)
+        else
+            Lighting.Ambient = Color3.new(0, 0, 0)
+            Lighting.ColorShift_Bottom = Color3.new(0, 0, 0)
+            Lighting.ColorShift_Top = Color3.new(0, 0, 0)
+        end  
+    end)
+    STATES.bright = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Select Time Dropdown
+    local Cheat_DayNight = {"Day", "Night"}
+    UI_SYSTEM.createDropdown(content, "Select Time", Cheat_DayNight, false, 1, function(value)
+        _G.SelectDN = value
+    end)
+    currentY = currentY + CONFIG.BUTTON_HEIGHT + CONFIG.SPACING
+
+    -- Turn on Time Toggle
+    UI_SYSTEM.createToggle(content, "Turn on Time", currentY, STATES, "daylightN", function(value)
+        _G.daylightN = value
+    end)
+    STATES.daylightN = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Turn on Walk on Water Toggle
+    UI_SYSTEM.createToggle(content, "Turn on Walk on Water", currentY, STATES, "WalkWater_Part", function(value)
+        _G.WalkWater_Part = value
+        if _G.WalkWater_Part then
+            game:GetService("Workspace").Map["WaterBase-Plane"].Size = Vector3.new(1000, 112, 1000)
+        else
+            game:GetService("Workspace").Map["WaterBase-Plane"].Size = Vector3.new(1000, 80, 1000)
+        end
+    end)
+    STATES.WalkWater_Part = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    -- Turn on Ice Walk Toggle
+    UI_SYSTEM.createToggle(content, "Turn on Ice Walk", currentY, STATES, "WalkWater", function(value)
+        _G.WalkWater = value
+    end)
+    STATES.WalkWater = false -- Initialize state
+    currentY = currentY + CONFIG.TOGGLE_SPACING
+
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Misc"], content)
+end
+
+
+function UI_SYSTEM.createMirageTabContent(content)
+    -- Mirage tab: placeholder (no content defined in original script)
+    local currentY = 10
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Mirage"], content)
+end
+
+
+function UI_SYSTEM.createSettingsTabContent(content)
+    -- Settings tab: placeholder
+    local currentY = 10
+    UTILS.updateCanvasSize(UI_ELEMENTS.Tabs.Scrolls["Settings"], content)
+end
+
+-- Global Variables and Helper Functions from original script
+
+local ply = game.Players
+local plr = ply.LocalPlayer
+local Root = plr.Character.HumanoidRootPart
+local replicated = game:GetService("ReplicatedStorage")
+local Lv = game.Players.LocalPlayer.Data.Level.Value
+local TeleportService = game:GetService("TeleportService")
+local TW = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")  
+local Enemies = workspace.Enemies
+local vim1 = game:GetService("VirtualInputManager")
+local vim2 = game:GetService("VirtualUser")
+local TeamSelf = plr.Team
+local RunSer = game:GetService("RunService")
+local Stats = game:GetService("Stats")  
+local Energy = plr.Character.Energy.Value
+local Boss = {}
+local BringConnections = {}
+local MaterialList = {}
+local NPCList = {}  
+local shouldTween = false
+local SoulGuitar = false
+local KenTest = true
+local debug = false
+local Brazier1 = false
+local Brazier2 = false
+local Brazier3 = false  
+local Sec = 0.1
+local ClickState = 0
+local Num_self = 25
+
+World1 = game.PlaceId == 2753915549 or game.PlaceId == 85211729168715
+World2 = game.PlaceId == 4442272183 or game.PlaceId == 79091703265657
+World3 = game.PlaceId == 7449423635 or game.PlaceId == 100117331123089
+Sea = World1 or World2 or World3 or plr:Kick("Error: This script only works in Blox Fruits (A[12]).")
+Marines = function() replicated.Remotes.CommF_:InvokeServer("SetTeam","Marines") end
+Pirates = function() replicated.Remotes.CommF_:InvokeServer("SetTeam","Pirates") end
+if World1 then Boss = {"The Gorilla King","Bobby","The Saw","Yeti","Mob Leader","Vice Admiral","Saber Expert","Warden","Chief Warden","Swan","Magma Admiral","Fishman Lord","Wysper","Thunder God","Cyborg","Ice Admiral","Greybeard"}
+elseif World2 then Boss = {"Diamond","Jeremy","Fajita","Don Swan","Smoke Admiral","Awakened Ice Admiral","Tide Keeper","Darkbeard","Cursed Captain","Order"}
+elseif World3 then Boss = {"Stone","Hydra Leader","Kilo Admiral","Captain Elephant","Beautiful Pirate","Cake Queen","Longma","Soul Reaper"}
+end
+if World1 then MaterialList = {"Leather + Scrap Metal", "Angel Wings", "Magma Ore", "Fish Tail"}
+elseif World2 then MaterialList = {"Leather + Scrap Metal", "Radioactive Material", "Ectoplasm", "Mystic Droplet", "Magma Ore", "Vampire Fang"}
+elseif World3 then MaterialList = {"Scrap Metal", "Demonic Wisp", "Conjured Cocoa", "Dragon Scale", "Gunpowder", "Fish Tail", "Mini Tusk"}
+end
+local DungeonTables = {"Flame","Ice","Quake","Light","Dark","String","Rumble","Magma","Human: Buddha","Sand","Bird: Phoenix","Dough"}
+local RenMon = {"Snow Lurker","Arctic Warrior","Hidden Key","Awakened Ice Admiral"}
+local CursedTables = {["Mob"] = "Mythological Pirate",["Mob2"] = "Cursed Skeleton","Hell's Messenger",["Mob3"] = "Cursed Skeleton","Heaven's Guardian"}
+local Past = {"Part","SpawnLocation","Terrain","WedgePart","MeshPart"}
+local BartMon = {"Swan Pirate","Jeremy"}
+local CitizenTable = {"Forest Pirate","Captain Elephant"}
+local Human_v3_Mob = {"Fajita","Jeremy","Diamond"}
+local AllBoats = {"Beast Hunter","Lantern","Guardian","Grand Brigade","Dinghy","Sloop","The Sentinel"}
+local mastery1 = {"Cookie Crafter"}
+local mastery2 = {"Reborn Skeleton"}
+local PosMsList = {["Pirate Millionaire"] = CFrame.new(-712.8272705078125, 98.5770492553711, 5711.9541015625),["Pistol Billionaire"] = CFrame.new(-723.4331665039062, 147.42906188964844, 5931.9931640625),["Dragon Crew Warrior"] = CFrame.new(7021.50439453125, 55.76270294189453, -730.1290893554688),["Dragon Crew Archer"] = CFrame.new(6625, 378, 244),["Female Islander"] = CFrame.new(4692.7939453125, 797.9766845703125, 858.8480224609375),["Venomous Assailant"] = CFrame.new(4902, 670, 39), ["Marine Commodore"] = CFrame.new(2401, 123, -7589),["Marine Rear Admiral"] = CFrame.new(3588, 229, -7085),["Fishman Raider"] = CFrame.new(-10941, 332, -8760),["Fishman Captain"] = CFrame.new(-11035, 332, -9087),["Forest Pirate"] = CFrame.new(-13446, 413, -7760),["Mythological Pirate"] = CFrame.new(-13510, 584, -6987),["Jungle Pirate"] = CFrame.new(-11778, 426, -10592),["Musketeer Pirate"] = CFrame.new(-13282, 496, -9565),["Reborn Skeleton"] = CFrame.new(-8764, 142, 5963),["Living Zombie"] = CFrame.new(-10227, 421, 6161),["Demonic Soul"] = CFrame.new(-9579, 6, 6194),["Posessed Mummy"] = CFrame.new(-9579, 6, 6194),["Peanut Scout"] = CFrame.new(-1993, 187, -10103),["Peanut President"] = CFrame.new(-2215, 159, -10474),["Ice Cream Chef"] = CFrame.new(-877, 118, -11032),["Ice Cream Commander"] = CFrame.new(-877, 118, -11032),["Cookie Crafter"] = CFrame.new(-2021, 38, -12028),["Cake Guard"] = CFrame.new(-2024, 38, -12026),["Baking Staff"] = CFrame.new(-1932, 38, -12848),["Head Baker"] = CFrame.new(-1932, 38, -12848),["Cocoa Warrior"] = CFrame.new(95, 73, -12309),["Chocolate Bar Battler"] = CFrame.new(647, 42, -12401),["Sweet Thief"] = CFrame.new(116, 36, -12478),["Candy Rebel"] = CFrame.new(47, 61, -12889),["Ghost"] = CFrame.new(5251, 5, 1111)}
+EquipWeapon = function(text)
+  if not text then return end
+  if plr.Backpack:FindFirstChild(text) then
+	plr.Character.Humanoid:EquipTool(plr.Backpack:FindFirstChild(text))
+  end
+end
+weaponSc = function(weapon)
+  for __in, v in pairs(plr.Backpack:GetChildren()) do
+    if v:IsA("Tool") then
+      if v.ToolTip == weapon then EquipWeapon(v.Name) end
+    end
+  end
+end
+hookfunction(require(game:GetService("ReplicatedStorage").Effect.Container.Death),function() end)
+hookfunction(require(game:GetService("ReplicatedStorage"):WaitForChild("GuideModule")).ChangeDisplayedNPC,function()end)
+hookfunction(error, function()end)
+hookfunction(warn, function()end)
+local Rock = workspace:FindFirstChild("Rocks")
+if Rock then Rock:Destroy()end
+gay = (function()
+  local lighting = game:GetService("Lighting")
+  local lightingLayers = lighting:FindFirstChild("LightingLayers")
+  if lightingLayers and game:GetService("Lighting") and game:GetService("Lighting") then
+    local darkFog = lightingLayers:FindFirstChild("DarkFog")
+    if darkFog then darkFog:Destroy() end
+  end
+  local Water = workspace._WorldOrigin["Foam;"]
+  if Water and workspace._WorldOrigin["Foam;"] then Water:Destroy() end        
+end)()
+local Attack = {}
+Attack.__index = Attack
+Attack.Alive = function(model) if not model then return end local Humanoid = model:FindFirstChild("Humanoid") return Humanoid and Humanoid.Health > 0 end
+Attack.Pos = function(model,dist) return (Root.Position - model.Position).Magnitude <= dist end
+Attack.Dist = function(model,dist) return (Root.Position - model:FindFirstChild("HumanoidRootPart").Position).Magnitude <= dist end
+Attack.DistH = function(model,dist) return (Root.Position - model:FindFirstChild("HumanoidRootPart").Position).Magnitude > dist end
+Attack.Kill = function(model,Succes)
+  if model and Succes then
+  if not model:GetAttribute("Locked") then model:SetAttribute("Locked",model.HumanoidRootPart.CFrame) end
+  PosMon = model:GetAttribute("Locked").Position
+  BringEnemy()
+  EquipWeapon(_G.SelectWeapon)
+  local Equipped = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+  local ToolTip = Equipped.ToolTip
+  if ToolTip == "Blox Fruit" then _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,10,0) * CFrame.Angles(0,math.rad(90),0)) else _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,30,0) * CFrame.Angles(0,math.rad(180),0))end
+  if RandomCFrame then wait(.5)_tp(model.HumanoidRootPart.CFrame * CFrame.new(0, 30, 25)) wait(.5)_tp(model.HumanoidRootPart.CFrame * CFrame.new(25, 30, 0)) wait(.5)_tp(model.HumanoidRootPart.CFrame * CFrame.new(-25, 30 ,0)) wait(.5)_tp(model.HumanoidRootPart.CFrame * CFrame.new(0, 30, 25)) wait(.5)_tp(model.HumanoidRootPart.CFrame * CFrame.new(-25, 30, 0))end
+  end
+end
+Attack.Kill2 = function(model,Succes)
+  if model and Succes then
+  if not model:GetAttribute("Locked") then model:SetAttribute("Locked",model.HumanoidRootPart.CFrame) end
+  PosMon = model:GetAttribute("Locked").Position
+  BringEnemy()
+  EquipWeapon(_G.SelectWeapon)
+  local Equipped = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+  local ToolTip = Equipped.ToolTip
+  if ToolTip == "Blox Fruit" then _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,10,0) * CFrame.Angles(0,math.rad(90),0)) else _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,30,8) * CFrame.Angles(0,math.rad(180),0))end
+  if RandomCFrame then wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(0, 30, 25)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(25, 30, 0)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(-25, 30 ,0)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(0, 30, 25)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(-25, 30, 0))end
+  end
+end
+Attack.KillSea = function(model,Succes)
+  if model and Succes then
+  if not model:GetAttribute("Locked") then model:SetAttribute("Locked",model.HumanoidRootPart.CFrame) end
+  PosMon = model:GetAttribute("Locked").Position
+  BringEnemy()
+  EquipWeapon(_G.SelectWeapon)
+  local Equipped = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+  local ToolTip = Equipped.ToolTip
+  if ToolTip == "Blox Fruit" then _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,10,0) * CFrame.Angles(0,math.rad(90),0)) else notween(model.HumanoidRootPart.CFrame * CFrame.new(0,50,8)) wait(.85)notween(model.HumanoidRootPart.CFrame * CFrame.new(0,400,0)) wait(1)end
+  end
+end
+Attack.Sword = function(model,Succes)
+  if model and Succes then
+  if not model:GetAttribute("Locked") then model:SetAttribute("Locked",model.HumanoidRootPart.CFrame) end
+  PosMon = model:GetAttribute("Locked").Position
+  BringEnemy()
+  weaponSc("Sword")
+  _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,30,0))
+  if RandomCFrame then wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(0, 30, 25)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(25, 30, 0)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(-25, 30 ,0)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(0, 30, 25)) wait(0.1)_tp(model.HumanoidRootPart.CFrame * CFrame.new(-25, 30, 0))end
+  end
+end
+Attack.Mas = function(model,Succes)
+  if model and Succes then
+  if not model:GetAttribute("Locked") then model:SetAttribute("Locked",model.HumanoidRootPart.CFrame) end
+  PosMon = model:GetAttribute("Locked").Position
+  BringEnemy()
+    if model.Humanoid.Health <= HealthM then
+      _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,20,0))
+      Useskills("Blox Fruit","Z")
+      Useskills("Blox Fruit","X")
+      Useskills("Blox Fruit","C")
+    else
+      weaponSc("Melee")
+      _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,30,0))
+    end
+  end
+end
+Attack.Masgun = function(model,Succes)
+  if model and Succes then
+  if not model:GetAttribute("Locked") then model:SetAttribute("Locked",model.HumanoidRootPart.CFrame) end
+  PosMon = model:GetAttribute("Locked").Position
+  BringEnemy()
+    if model.Humanoid.Health <= HealthM then
+      _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,35,8))
+      Useskills("Gun","Z")
+      Useskills("Gun","X")
+    else
+      weaponSc("Melee")
+      _tp(model.HumanoidRootPart.CFrame * CFrame.new(0,30,0))
+    end
+  end
+end
+statsSetings = function(Num, value)
+  if Num == "Melee" then
+    if plr.Data.Points.Value ~= 0 then
+      replicated.Remotes.CommF_:InvokeServer("AddPoint","Melee",value)
+    end
+  elseif Num == "Defense" then
+    if plr.Data.Points.Value ~= 0 then
+      replicated.Remotes.CommF_:InvokeServer("AddPoint","Defense",value)
+    end
+  elseif Num == "Sword" then
+    if plr.Data.Points.Value ~= 0 then
+      replicated.Remotes.CommF_:InvokeServer("AddPoint","Sword",value)
+    end
+  elseif Num == "Gun" then
+    if plr.Data.Points.Value ~= 0 then
+      replicated.Remotes.CommF_:InvokeServer("AddPoint","Gun",value)
+    end
+  elseif Num == "Devil" then
+    if plr.Data.Points.Value ~= 0 then
+      replicated.Remotes.CommF_:InvokeServer("AddPoint","Demon Fruit",value)
+    end
+  end
+end
+BringEnemy = function()
+  if not _B then return end
+  for _,v in pairs(workspace.Enemies:GetChildren()) do
+    if v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 then
+	  if (v.PrimaryPart.Position - PosMon).Magnitude <= 300 then
+	    v.PrimaryPart.CFrame = CFrame.new(PosMon)
+		v.PrimaryPart.CanCollide = true;
+		v:FindFirstChild("Humanoid").WalkSpeed = 0;
+		v:FindFirstChild("Humanoid").JumpPower = 0;
+		if v.Humanoid:FindFirstChild("Animator") then v.Humanoid.Animator:Destroy()end;
+		plr.SimulationRadius = math.huge
+	  end
+	end                               
+  end                    	
+end
+Useskills = function(weapon, skill)
+  if weapon == "Melee" then
+    weaponSc("Melee")
+    if skill == "Z" then
+      vim1:SendKeyEvent(true, "Z", false, game);
+      vim1:SendKeyEvent(false, "Z", false, game);
+    elseif skill == "X" then
+      vim1:SendKeyEvent(true, "X", false, game);
+      vim1:SendKeyEvent(false, "X", false, game);
+    elseif skill == "C" then
+      vim1:SendKeyEvent(true, "C", false, game);
+      vim1:SendKeyEvent(false, "C", false, game);
+    end
+  elseif weapon == "Sword" then
+    weaponSc("Sword")
+    if skill == "Z" then
+      vim1:SendKeyEvent(true, "Z", false, game);
+      vim1:SendKeyEvent(false, "Z", false, game);
+    elseif skill == "X" then
+      vim1:SendKeyEvent(true, "X", false, game);
+      vim1:SendKeyEvent(false, "X", false, game);
+    end
+  elseif weapon == "Blox Fruit" then
+    weaponSc("Blox Fruit")
+    if skill == "Z" then
+      vim1:SendKeyEvent(true, "Z", false, game);
+      vim1:SendKeyEvent(false, "Z", false, game);
+    elseif skill == "X" then
+      vim1:SendKeyEvent(true, "X", false, game);
+      vim1:SendKeyEvent(false, "X", false, game);
+    elseif skill == "C" then
+      vim1:SendKeyEvent(true, "C", false, game);
+      vim1:SendKeyEvent(false, "C", false, game);        
+    elseif skill == "V" then
+      vim1:SendKeyEvent(true, "V", false, game);
+      vim1:SendKeyEvent(false, "V", false, game);
+    end
+  elseif weapon == "Gun" then
+    weaponSc("Gun")
+    if skill == "Z" then
+      vim1:SendKeyEvent(true, "Z", false, game);
+      vim1:SendKeyEvent(false, "Z", false, game);
+    elseif skill == "X" then
+      vim1:SendKeyEvent(true, "X", false, game);
+      vim1:SendKeyEvent(false, "X", false, game);
+    end
+  end
+  if weapon == "nil" and skill == "Y" then
+    vim1:SendKeyEvent(true, "Y", false, game);
+    vim1:SendKeyEvent(false, "Y", false, game);
+  end
+end
+
+
+-- Call the initialization function (placed here so all functions are defined first)
+UI_INIT.init()
